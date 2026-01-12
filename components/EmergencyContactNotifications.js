@@ -1,7 +1,18 @@
-// components/EmergencyContactNotifications.js
-import React, { useState } from 'react';
-import { View, Text, TouchableOpacity, FlatList, StyleSheet } from 'react-native';
+// driveash/components/EmergencyContactNotifications.js
+import React, { useEffect, useMemo, useState } from 'react';
+import {
+  View,
+  Text,
+  TouchableOpacity,
+  FlatList,
+  StyleSheet,
+  ActivityIndicator,
+  Alert,
+  Image, // ✅ add
+} from 'react-native';
 import { MaterialIcons, FontAwesome5, Feather } from '@expo/vector-icons';
+import { supabase } from '../lib/supabase';
+import { getUsersAvatarUrls, resolveAvatarUrl } from '../lib/avatar'; // ✅ add
 
 const Button = ({ onPress, children, style, variant }) => {
   const buttonStyle = [styles.button, style, variant === 'outline' ? styles.outlineButton : null];
@@ -12,52 +23,179 @@ const Button = ({ onPress, children, style, variant }) => {
   );
 };
 
+function displayNameFromProfile(p) {
+  const first = String(p?.first_name || '').trim();
+  const last = String(p?.last_name || '').trim();
+  const full = `${first}${first && last ? ' ' : ''}${last}`.trim();
+  return full || String(p?.email || 'Unknown User');
+}
+
 export default function EmergencyContactNotifications({ onNavigate }) {
-  const [notifications, setNotifications] = useState([
-    // ✅ NEW: Level 3 warning notification
+  const [loading, setLoading] = useState(true);
+
+  // Keep your existing alert sample (for drowsiness warnings etc.)
+  const [alerts] = useState([
     {
-      id: '0',
-      driverName: 'Jane Doe',
+      id: 'alert-0',
       type: 'alert',
       message: 'Driver status changed to LEVEL 3 WARNING',
       timestamp: 'Just now',
     },
-    {
-      id: '1',
-      driverName: 'Hudson Williams',
-      type: 'invite',
-      message: 'Hudson Williams wants to add you as an emergency contact',
-      timestamp: '2 hours ago',
-      status: 'pending',
-    },
-    {
-      id: '2',
-      driverName: 'John Doe',
-      type: 'alert',
-      message: 'Driver status changed to Warning',
-      timestamp: '5 hours ago',
-    },
-    {
-      id: '3',
-      driverName: 'Robert Chen',
-      type: 'invite',
-      message: 'Robert Chen wants to add you as an emergency contact',
-      timestamp: '1 day ago',
-      status: 'pending',
-    },
   ]);
 
-  const handleAccept = (id) => {
-    setNotifications((prev) =>
-      prev.map((notif) => (notif.id === id ? { ...notif, status: 'accepted' } : notif))
-    );
+  const [invites, setInvites] = useState([]); // backend invites
+
+  const loadInvites = async () => {
+    try {
+      setLoading(true);
+
+      const { data: userRes, error: userErr } = await supabase.auth.getUser();
+      if (userErr) throw userErr;
+
+      const me = userRes?.user;
+      if (!me?.id) {
+        setInvites([]);
+        return;
+      }
+
+      // incoming pending invites
+      const { data: rows, error: rowsErr } = await supabase
+        .from('emergency_contact_requests')
+        .select('id, requester_id, status, created_at')
+        .eq('target_id', me.id)
+        .order('created_at', { ascending: false });
+
+      if (rowsErr) throw rowsErr;
+
+      const requesterIds = Array.from(
+        new Set((rows || []).map((r) => r.requester_id).filter(Boolean).map(String))
+      );
+
+      let profilesById = {};
+      if (requesterIds.length > 0) {
+        const { data: profs, error: profErr } = await supabase
+          .from('user_profiles')
+          .select('id,email,first_name,last_name,phone,avatar_url') // ✅ add avatar_url
+          .in('id', requesterIds);
+
+        if (profErr) throw profErr;
+
+        (profs || []).forEach((p) => {
+          profilesById[String(p.id)] = p;
+        });
+      }
+
+      // ✅ get avatar public URLs in one go (uses your existing helper)
+      const avatarMap = requesterIds.length > 0 ? await getUsersAvatarUrls(requesterIds) : {};
+
+      const mapped = (rows || []).map((r) => {
+        const rid = String(r.requester_id || '');
+        const requesterProfile = profilesById[rid];
+        const requesterName = displayNameFromProfile(requesterProfile);
+
+        const avatarUri =
+          avatarMap?.[rid] ??
+          resolveAvatarUrl(requesterProfile?.avatar_url) ??
+          null;
+
+        return {
+          id: `invite-${r.id}`,
+          requestRowId: r.id,
+          requesterId: r.requester_id,
+          type: 'invite',
+          status: r.status,
+          message: `${requesterName} wants to add you as an emergency contact`,
+          timestamp: new Date(r.created_at).toLocaleString(),
+          avatarUri, // ✅ add
+        };
+      });
+
+      setInvites(mapped);
+    } catch (e) {
+      console.log('[EC Notifications] loadInvites error:', e);
+      Alert.alert('Error', e?.message || 'Failed to load notifications');
+    } finally {
+      setLoading(false);
+    }
   };
 
-  const handleDecline = (id) => {
-    setNotifications((prev) =>
-      prev.map((notif) => (notif.id === id ? { ...notif, status: 'declined' } : notif))
-    );
+  useEffect(() => {
+    loadInvites();
+  }, []);
+
+  // Optional realtime updates (new invites / status changes)
+  useEffect(() => {
+    let channel;
+
+    const sub = async () => {
+      try {
+        const { data: userRes } = await supabase.auth.getUser();
+        const me = userRes?.user;
+        if (!me?.id) return;
+
+        channel = supabase
+          .channel('ec-invites-target')
+          .on(
+            'postgres_changes',
+            {
+              event: '*',
+              schema: 'public',
+              table: 'emergency_contact_requests',
+              filter: `target_id=eq.${me.id}`,
+            },
+            () => {
+              loadInvites();
+            }
+          )
+          .subscribe();
+      } catch (e) {
+        console.log('[EC Notifications] realtime subscribe error:', e);
+      }
+    };
+
+    sub();
+
+    return () => {
+      if (channel) supabase.removeChannel(channel);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  const handleAccept = async (requestRowId) => {
+    try {
+      const { error } = await supabase
+        .from('emergency_contact_requests')
+        .update({ status: 'accepted', responded_at: new Date().toISOString() })
+        .eq('id', requestRowId);
+
+      if (error) throw error;
+
+      await loadInvites();
+    } catch (e) {
+      Alert.alert('Error', e?.message || 'Failed to accept invite');
+    }
   };
+
+  const handleDecline = async (requestRowId) => {
+    try {
+      const { error } = await supabase
+        .from('emergency_contact_requests')
+        .update({ status: 'declined', responded_at: new Date().toISOString() })
+        .eq('id', requestRowId);
+
+      if (error) throw error;
+
+      await loadInvites();
+    } catch (e) {
+      Alert.alert('Error', e?.message || 'Failed to decline invite');
+    }
+  };
+
+  // Combine alerts + invites into one list
+  const notifications = useMemo(() => {
+    // show invites first (more important), then alerts
+    return [...invites, ...alerts];
+  }, [invites, alerts]);
 
   const renderNotification = ({ item }) => {
     const isLevel3 =
@@ -78,11 +216,20 @@ export default function EmergencyContactNotifications({ onNavigate }) {
               isLevel3 && { backgroundColor: '#FEE2E2' },
             ]}
           >
-            <FontAwesome5
-              name="user"
-              size={20}
-              color={isLevel3 ? '#DC2626' : '#1E3A8A'}
-            />
+            {/* ✅ If user has avatar, show it. Otherwise keep your icon */}
+            {item?.avatarUri ? (
+              <Image
+                source={{ uri: item.avatarUri }}
+                style={styles.avatarImage}
+                resizeMode="cover"
+              />
+            ) : (
+              <FontAwesome5
+                name="user"
+                size={20}
+                color={isLevel3 ? '#DC2626' : '#1E3A8A'}
+              />
+            )}
           </View>
 
           <View style={styles.textContent}>
@@ -93,20 +240,28 @@ export default function EmergencyContactNotifications({ onNavigate }) {
 
             {item.type === 'invite' && item.status === 'pending' && (
               <View style={styles.actionButtons}>
-                <Button onPress={() => handleAccept(item.id)} style={styles.acceptButton}>
+                <Button onPress={() => handleAccept(item.requestRowId)} style={styles.acceptButton}>
                   <MaterialIcons name="check" size={16} color="white" />
                   <Text style={styles.acceptText}> Accept</Text>
                 </Button>
 
-                <Button onPress={() => handleDecline(item.id)} variant="outline" style={styles.declineButton}>
+                <Button
+                  onPress={() => handleDecline(item.requestRowId)}
+                  variant="outline"
+                  style={styles.declineButton}
+                >
                   <MaterialIcons name="close" size={16} color="#374151" />
                   <Text style={styles.declineText}> Decline</Text>
                 </Button>
               </View>
             )}
 
-            {item.status === 'accepted' && <Text style={styles.acceptedText}>✓ Accepted</Text>}
-            {item.status === 'declined' && <Text style={styles.declinedText}>Declined</Text>}
+            {item.type === 'invite' && item.status === 'accepted' && (
+              <Text style={styles.acceptedText}>✓ Accepted</Text>
+            )}
+            {item.type === 'invite' && item.status === 'declined' && (
+              <Text style={styles.declinedText}>Declined</Text>
+            )}
           </View>
         </View>
       </View>
@@ -121,7 +276,12 @@ export default function EmergencyContactNotifications({ onNavigate }) {
       </View>
 
       <View style={styles.listContainer}>
-        {notifications.length === 0 ? (
+        {loading ? (
+          <View style={styles.emptyContainer}>
+            <ActivityIndicator size="large" color="#1E3A8A" />
+            <Text style={[styles.emptyText, { marginTop: 12 }]}>Loading…</Text>
+          </View>
+        ) : notifications.length === 0 ? (
           <View style={styles.emptyContainer}>
             <Feather name="bell" size={64} color="#D1D5DB" />
             <Text style={styles.emptyText}>No notifications yet</Text>
@@ -129,7 +289,7 @@ export default function EmergencyContactNotifications({ onNavigate }) {
         ) : (
           <FlatList
             data={notifications}
-            keyExtractor={(item) => item.id}
+            keyExtractor={(item) => String(item.id)}
             renderItem={renderNotification}
             ItemSeparatorComponent={() => <View style={{ height: 12 }} />}
           />
@@ -182,7 +342,13 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
     marginRight: 12,
+    overflow: 'hidden', // ✅ allow image to clip
   },
+  avatarImage: {
+    width: 40,
+    height: 40,
+  },
+
   textContent: { flex: 1 },
   message: { fontSize: 14, color: '#111827', marginBottom: 2 },
   timestamp: { fontSize: 12, color: '#9CA3AF' },

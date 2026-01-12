@@ -46,3 +46,21 @@ node_modules/
 .expo/
 dist/
 build/
+
+# secrets
+.env
+.env.*
+*.env
+serviceAccount*.json
+*service-account*.json
+firebase-adminsdk*.json
+google-services.json
+GoogleService-Info.plist
+
+# junk
+node_modules/
+.expo/
+.expo-shared/
+dist/
+build/
+.DS_Store

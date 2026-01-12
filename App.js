@@ -1,4 +1,5 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
+
 import { View, StyleSheet, Alert } from 'react-native';
 import * as Location from 'expo-location';
 import { supabase } from './lib/supabase';
@@ -28,83 +29,122 @@ import EmergencyContactDashboard from './components/EmergencyContactDashboard';
 import EmergencyContactNotifications from './components/EmergencyContactNotifications';
 import EmergencyContactSettings from './components/EmergencyContactSettings.js';
 import DriverDetailView from './components/DriverDetailView';
-
+import ModeSwitchLoadingScreen from './components/ModeSwitchLoadingScreen';
 export default function App() {
   const [currentScreen, setCurrentScreen] = useState('splash');
-
-  const [phoneNumber, setPhoneNumber] = useState('');
+  const [navParams, setNavParams] = useState(null);
+  const otpInFlightRef = useRef(false);
+  // ✅ Mode switch loading screen (prevents UI changing immediately)
+  const [modeSwitchConfig, setModeSwitchConfig] = useState(null);
+  const [email, setEmail] = useState('');
   const [otpSentAt, setOtpSentAt] = useState(null);
-  const [userData, setUserData] = useState(null);
+const [otpSending, setOtpSending] = useState(false);
 
-  // Tracks what the OTP screen is confirming.
-  const [otpFlow, setOtpFlow] = useState(null); // 'login' | 'signup' | 'forgot'
+  // store signup payload until OTP verifies
+  const [signupData, setSignupData] = useState(null);
 
-  const [userMode, setUserMode] = useState('driver'); // 'driver' | 'emergency-contact'
+  // 'login' | 'signup' | 'forgot'
+  const [otpFlow, setOtpFlow] = useState(null);
+
+  const [userMode, setUserMode] = useState('driver');
   const [selectedDriverId, setSelectedDriverId] = useState(null);
 
   const [locationPermissionGranted, setLocationPermissionGranted] = useState(false);
   const [currentLocation, setCurrentLocation] = useState(null);
 
-  // --- Supabase Phone OTP helpers ---
-  const normalizePhone = (input) => {
-    const raw = String(input ?? '').replace(/[\s-]/g, '');
-    if (!raw) return '';
-    if (raw.startsWith('+')) return raw;
-    if (raw.startsWith('0')) return `+63${raw.slice(1)}`; // PH default
-    if (raw.startsWith('63')) return `+${raw}`;
-    if (/^9\d{9}$/.test(raw)) return `+63${raw}`; // 9xxxxxxxxx -> +63
-    return `+${raw}`;
+  const normalizeEmail = (input) => String(input ?? '').trim().toLowerCase();
+
+    const isAllowedProviderEmail = (raw) => {
+    const v = String(raw ?? '').trim().toLowerCase();
+
+    // length rules
+    if (!v) return false;
+    if (v.length > 45) return false;
+
+    // exactly one @
+    const atCount = (v.match(/@/g) || []).length;
+    if (atCount !== 1) return false;
+
+    const [local, domain] = v.split('@');
+    if (!local || !domain) return false;
+
+    // domain must be exactly gmail.com or yahoo.com
+    if (domain !== 'gmail.com' && domain !== 'yahoo.com') return false;
+
+    // no double dots after @
+    if (domain.includes('..')) return false; // (extra safety; gmail.com/yahoo.com already clean)
+
+    // allow dots before @, but disallow weird stuff
+    if (!/^[a-z0-9._%+-]+$/.test(local)) return false;
+
+    // no consecutive dots in local, and not starting/ending with dot
+    if (local.includes('..')) return false;
+    if (local.startsWith('.') || local.endsWith('.')) return false;
+
+    return true;
   };
 
-  const sendOtp = async ({ phone, shouldCreateUser }) => {
-    const formatted = normalizePhone(phone);
-    if (!formatted) {
-      return { ok: false, kind: 'missing_phone', message: 'Please enter a phone number.' };
+  const sendEmailOtp = async ({ email, shouldCreateUser }) => {
+    // ✅ INSTANT anti-spam lock (ref is immediate)
+    if (otpInFlightRef.current) {
+      return { ok: false, message: 'Please wait… sending code.', silent: true };
     }
 
-    const { error } = await supabase.auth.signInWithOtp({
-      phone: formatted,
-      options: { shouldCreateUser: !!shouldCreateUser, channel: 'sms' },
-    });
+    const formatted = normalizeEmail(email);
+    if (!formatted) return { ok: false, message: 'Please enter an email.' };
 
-    if (error) {
-      return { ok: false, kind: 'send_failed', message: error.message };
+    // ✅ enforce the same strict email rule here (prevents loopholes even if UI misses)
+    if (!isAllowedProviderEmail(formatted)) {
+      return { ok: false, message: 'Only valid @gmail.com or @yahoo.com emails are allowed.' };
     }
 
-    return { ok: true, phone: formatted };
+    otpInFlightRef.current = true;
+    setOtpSending(true);
+
+    try {
+      const { error } = await supabase.auth.signInWithOtp({
+        email: formatted,
+        options: { shouldCreateUser: !!shouldCreateUser },
+      });
+
+      if (error) return { ok: false, message: error.message };
+      return { ok: true, email: formatted };
+    } finally {
+      otpInFlightRef.current = false;
+      setOtpSending(false);
+    }
   };
 
-  const verifyOtp = async ({ phone, token }) => {
-    const formatted = normalizePhone(phone);
+
+
+  const verifyEmailOtp = async ({ email, token }) => {
+    const formatted = normalizeEmail(email);
 
     const { data, error } = await supabase.auth.verifyOtp({
-      phone: formatted,
+      email: formatted,
       token,
-      type: 'sms',
+      type: 'email',
     });
 
-    if (error) {
-      return { ok: false, kind: 'invalid_otp', message: error.message };
-    }
-
-    return { ok: true, session: data.session, user: data.user, phone: formatted };
+    if (error) return { ok: false, message: error.message };
+    return { ok: true, session: data.session, user: data.user };
   };
 
-  const checkPhonePassword = async ({ phone, password }) => {
-    const formatted = normalizePhone(phone);
+  const checkEmailPassword = async ({ email, password }) => {
+    const formatted = normalizeEmail(email);
 
-    if (!formatted) return { ok: false, kind: 'missing_phone', message: 'Please enter a phone number.' };
-    if (!password) return { ok: false, kind: 'missing_password', message: 'Please enter your password.' };
+    if (!formatted) return { ok: false, message: 'Please enter your email.' };
+    if (!password) return { ok: false, message: 'Please enter your password.' };
 
-    const { data, error } = await supabase.rpc('check_phone_password', {
-      p_phone: formatted,
+    const { data, error } = await supabase.rpc('check_email_password', {
+      p_email: formatted,
       p_password: password,
     });
 
-    if (error) return { ok: false, kind: 'server', message: error.message };
-    if (!data) return { ok: false, kind: 'bad_password', message: 'Phone number or password is incorrect.' };
+    if (error) return { ok: false, message: error.message };
+    if (!data) return { ok: false, message: 'Email or password is incorrect.' };
 
-    return { ok: true, phone: formatted };
+    return { ok: true, email: formatted };
   };
 
   useEffect(() => {
@@ -112,15 +152,11 @@ export default function App() {
       try {
         const { data } = await supabase.auth.getSession();
         if (data?.session) {
-  // Default after session restore: Emergency Contact Dashboard
-  setUserMode('emergency-contact');
-  setCurrentScreen('ec-dashboard');
-}
-      } catch {
-        // ignore
-      }
+          setUserMode('emergency-contact');
+          setCurrentScreen('ec-dashboard');
+        }
+      } catch {}
     })();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const requestLocationPermission = async () => {
@@ -148,98 +184,102 @@ export default function App() {
     }
   };
 
+  // LOGIN: email+password -> send email OTP -> OTP screen
   const handleLogin = async (payload) => {
     if (payload === 'google') {
       Alert.alert('Not implemented', 'Google sign-in is not wired up yet.');
-      return { ok: false, kind: 'not_implemented' };
+      return { ok: false };
     }
 
-    const phone = payload?.phoneNumber;
+    const userEmail = payload?.email;
     const password = payload?.password;
 
-    const creds = await checkPhonePassword({ phone, password });
+    const creds = await checkEmailPassword({ email: userEmail, password });
     if (!creds.ok) {
-      Alert.alert('Login failed', creds.message || 'Invalid credentials.');
+      Alert.alert('Login failed', creds.message);
       return creds;
     }
 
-    const res = await sendOtp({ phone: creds.phone, shouldCreateUser: false });
-    if (!res.ok) {
-      Alert.alert('Failed to send code', res.message || 'Could not send OTP.');
-      return res;
-    }
+    const res = await sendEmailOtp({ email: creds.email, shouldCreateUser: false });
+   if (!res.ok) {
+  if (!res.silent) Alert.alert('Failed to send code', res.message);
+  return res;
+}
+
 
     setOtpFlow('login');
-    setPhoneNumber(res.phone);
+    setEmail(res.email);
     setOtpSentAt(Date.now());
     setCurrentScreen('login-otp');
     return { ok: true };
   };
 
+  // SIGNUP: email+phone+password -> send email OTP -> OTP screen
   const handleSignup = async (data) => {
-    if (data?.phone === 'google') {
-      Alert.alert('Not implemented', 'Google sign-up is not wired up yet.');
-      return { ok: false, kind: 'not_implemented' };
-    }
+  if (data === 'google') {
+    Alert.alert('Not implemented', 'Google sign-up is not wired up yet.');
+    return { ok: false };
+  }
 
-    if (!data?.firstName || !data?.lastName || !data?.phone || !data?.password) {
-      Alert.alert('Missing info', 'Please fill in all required fields.');
-      return { ok: false, kind: 'missing_fields', message: 'Please fill in all required fields.' };
-    }
+  if (!data?.email || !data?.firstName || !data?.lastName || !data?.phone || !data?.password) {
+    Alert.alert('Missing info', 'Please fill in email, first name, last name, phone and password.');
+    return { ok: false };
+  }
 
-    setUserData(data);
+  setSignupData({
+    email: data.email,
+    firstName: data.firstName,
+    lastName: data.lastName,
+    phone: data.phone,
+    password: data.password,
+  });
 
-    const res = await sendOtp({ phone: data.phone, shouldCreateUser: true });
-    if (!res.ok) {
-      Alert.alert('Failed to send code', res.message || 'Could not send OTP.');
-      return res;
-    }
+  const res = await sendEmailOtp({ email: data.email, shouldCreateUser: true });
+if (!res.ok) {
+  if (!res.silent) Alert.alert('Failed to send code', res.message);
+  return res;
+}
 
-    setOtpFlow('signup');
-    setPhoneNumber(res.phone);
-    setOtpSentAt(Date.now());
-    setCurrentScreen('signup-otp');
-    return { ok: true };
-  };
+
+  setOtpFlow('signup');
+  setEmail(res.email);
+  setOtpSentAt(Date.now());
+  setCurrentScreen('signup-otp');
+  return { ok: true };
+};
+
 
   const handleOTPConfirm = async (token) => {
-    const res = await verifyOtp({ phone: phoneNumber, token });
+    const res = await verifyEmailOtp({ email, token });
     if (!res.ok) return res;
 
     if (otpFlow === 'signup') {
-      try {
-        const { error } = await supabase.rpc('upsert_profile_after_otp', {
-          p_first_name: userData?.firstName ?? null,
-          p_last_name: userData?.lastName ?? null,
-          p_phone: res.phone,
-          p_password: userData?.password ?? null,
-        });
+      // save password + phone into your profiles table (RPC)
+     const { error } = await supabase.rpc('upsert_profile_after_otp_email', {
+  p_first_name: signupData?.firstName ?? null,
+  p_last_name: signupData?.lastName ?? null,
+  p_phone: signupData?.phone ?? null,
+  p_password: signupData?.password ?? null,
+});
 
-        if (error) {
-          return { ok: false, kind: 'server', message: error.message || 'Failed to create profile.' };
-        }
-      } catch (e) {
-        return { ok: false, kind: 'server', message: e?.message || 'Failed to create profile.' };
-      } finally {
-        // Keep behavior consistent with the working version:
-        // after signup completion, sign out and return user to Login.
-        try {
-          await supabase.auth.signOut();
-        } catch {}
-      }
+      if (error) return { ok: false, message: error.message };
+
+      // IMPORTANT: go back to login (your requirement)
+      try {
+        await supabase.auth.signOut();
+      } catch {}
 
       setOtpFlow(null);
-      setUserData(null);
+      setSignupData(null);
       setCurrentScreen('login');
       return { ok: true };
     }
 
     if (otpFlow === 'login') {
-  // Default after login: Emergency Contact Dashboard
-  setUserMode('emergency-contact');
-  setCurrentScreen('ec-dashboard');
-  return { ok: true };
-}
+      setUserMode('emergency-contact');
+      setCurrentScreen('ec-dashboard');
+      return { ok: true };
+    }
 
     if (otpFlow === 'forgot') {
       setCurrentScreen('new-password');
@@ -249,40 +289,96 @@ export default function App() {
     return { ok: true };
   };
 
-  const handleForgotPasswordSubmit = async (phone) => {
-    const res = await sendOtp({ phone, shouldCreateUser: false });
-    if (!res.ok) {
-      Alert.alert('Failed to send code', res.message || 'Could not send OTP.');
-      return res;
-    }
+  const handleForgotPasswordSubmit = async (emailInput) => {
+    const res = await sendEmailOtp({ email: emailInput, shouldCreateUser: false });
+  if (!res.ok) {
+  if (!res.silent) Alert.alert('Failed to send code', res.message);
+  return res;
+}
+
 
     setOtpFlow('forgot');
-    setPhoneNumber(res.phone);
+    setEmail(res.email);
     setOtpSentAt(Date.now());
     setCurrentScreen('forgot-otp');
     return { ok: true };
   };
+const handleNewPasswordSubmit = async (newPassword) => {
+  try {
+    if (!newPassword || String(newPassword).trim().length < 6) {
+      Alert.alert('Invalid password', 'Password must be at least 6 characters.');
+      return { ok: false };
+    }
+
+    // user is signed-in already because they verified OTP
+    const { error } = await supabase.rpc('update_password_after_otp_email', {
+      p_password: newPassword,
+    });
+
+    if (error) {
+      Alert.alert('Failed to reset password', error.message);
+      return { ok: false, message: error.message };
+    }
+
+    Alert.alert('Success', 'Your password has been updated. Please log in again.');
+
+    // sign out so login uses the new password
+    try {
+      await supabase.auth.signOut();
+    } catch {}
+
+    setOtpFlow(null);
+    setEmail('');
+    setOtpSentAt(null);
+    setCurrentScreen('login');
+    return { ok: true };
+  } catch (e) {
+    Alert.alert('Error', 'Something went wrong resetting your password.');
+    return { ok: false };
+  }
+};
 
   const handleResend = async () => {
     const shouldCreateUser = otpFlow === 'signup';
-    const res = await sendOtp({ phone: phoneNumber, shouldCreateUser });
+    const res = await sendEmailOtp({ email, shouldCreateUser });
     if (res.ok) setOtpSentAt(Date.now());
     return res;
   };
 
-  const handleNavigate = (screen) => setCurrentScreen(screen);
+ const handleNavigate = (screen, params = null) => {
+  setNavParams(params);
+  setCurrentScreen(screen);
+};
+
+  // ✅ Show white loading screen BEFORE switching modes/screens
+  const beginSwitchToEmergencyContact = () => {
+    setModeSwitchConfig({
+      action: 'to-ec',
+      title: 'EMERGENCY CONTACT MODE',
+      subtitle: 'Switching to Emergency Contact dashboard…',
+    });
+    setCurrentScreen('mode-switch');
+  };
+
+  const beginSwitchToDriver = () => {
+    setModeSwitchConfig({
+      action: 'to-driver',
+      title: 'DRIVER MODE',
+      subtitle: 'Switching to Driver dashboard…',
+    });
+    setCurrentScreen('mode-switch');
+  };
+
+
 
   const handleSwitchToEmergencyContact = () => {
-    setUserMode('emergency-contact');
-    setCurrentScreen('ec-dashboard');
+    beginSwitchToEmergencyContact();
   };
-const handleSwitchToDriver = async () => {
-  const granted = await requestLocationPermission();
-  if (!granted) return;
 
-  setUserMode('driver');
-  setCurrentScreen('dashboard');
-};
+  const handleSwitchToDriver = async () => {
+    // keep async signature (non-breaking) but show loading first
+    beginSwitchToDriver();
+  };
 
 
   const handleViewDriver = (driverId) => {
@@ -296,18 +392,49 @@ const handleSwitchToDriver = async () => {
     } catch {}
     setLocationPermissionGranted(false);
     setOtpFlow(null);
-    setPhoneNumber('');
-    setUserData(null);
+    setEmail('');
+    setSignupData(null);
     setUserMode(null);
     setCurrentScreen('login');
   };
 
-  return (
+   return (
     <View style={styles.container}>
+      {currentScreen === 'mode-switch' && (
+        <ModeSwitchLoadingScreen
+          title={modeSwitchConfig?.title || 'Loading…'}
+          subtitle={modeSwitchConfig?.subtitle || 'Switching…'}
+          durationMs={1800}
+          onDone={async () => {
+            const action = modeSwitchConfig?.action;
+
+            // clear config so it won't rerun
+            setModeSwitchConfig(null);
+
+            if (action === 'to-driver') {
+              const granted = await requestLocationPermission();
+              if (!granted) {
+                // stay / return to EC dashboard if permission denied
+                setUserMode('emergency-contact');
+                setCurrentScreen('ec-dashboard');
+                return;
+              }
+
+              setUserMode('driver');
+              setCurrentScreen('dashboard');
+              return;
+            }
+
+            // default: go to Emergency Contact
+            setUserMode('emergency-contact');
+            setCurrentScreen('ec-dashboard');
+          }}
+        />
+      )}
+
       {currentScreen === 'splash' && <SplashScreen onComplete={() => setCurrentScreen('welcome')} />}
 
       {currentScreen === 'welcome' && <WelcomeScreen onStart={() => setCurrentScreen('onboarding')} />}
-
       {currentScreen === 'onboarding' && <OnboardingFlow onComplete={() => setCurrentScreen('login')} />}
 
       {/* AUTH */}
@@ -321,7 +448,7 @@ const handleSwitchToDriver = async () => {
 
       {currentScreen === 'login-otp' && (
         <OTPConfirmation
-          phoneNumber={phoneNumber}
+          email={email}
           sentAt={otpSentAt}
           expirySeconds={300}
           resendCooldownSeconds={300}
@@ -338,7 +465,7 @@ const handleSwitchToDriver = async () => {
 
       {currentScreen === 'signup-otp' && (
         <OTPConfirmation
-          phoneNumber={phoneNumber}
+          email={email}
           sentAt={otpSentAt}
           expirySeconds={300}
           resendCooldownSeconds={300}
@@ -355,7 +482,7 @@ const handleSwitchToDriver = async () => {
 
       {currentScreen === 'forgot-otp' && (
         <OTPConfirmation
-          phoneNumber={phoneNumber}
+          email={email}
           sentAt={otpSentAt}
           expirySeconds={300}
           resendCooldownSeconds={300}
@@ -367,8 +494,11 @@ const handleSwitchToDriver = async () => {
       )}
 
       {currentScreen === 'new-password' && (
-        <NewPassword onSubmit={() => setCurrentScreen('login')} onBack={() => setCurrentScreen('forgot-otp')} />
-      )}
+  <NewPassword
+    onSubmit={handleNewPasswordSubmit}
+    onBack={() => setCurrentScreen('forgot-otp')}
+  />
+)}
 
       {/* DRIVER MODE */}
       {userMode === 'driver' && currentScreen === 'dashboard' && (
@@ -379,10 +509,15 @@ const handleSwitchToDriver = async () => {
         />
       )}
 
-      {currentScreen === 'history' && <History onNavigate={handleNavigate} />}
+      {currentScreen === 'history' && (
+  <History
+    onNavigate={handleNavigate}
+    navParams={navParams}
+    clearNavParams={() => setNavParams(null)}
+  />
+)}
 
       {currentScreen === 'location' && <LocationView onNavigate={handleNavigate} location={currentLocation} />}
-
       {currentScreen === 'contacts' && <Contacts onNavigate={handleNavigate} />}
 
       {currentScreen === 'menu' && (
@@ -394,9 +529,12 @@ const handleSwitchToDriver = async () => {
         />
       )}
 
-      {/* EMERGENCY CONTACT MODE */}
       {userMode === 'emergency-contact' && currentScreen === 'ec-dashboard' && (
-        <EmergencyContactDashboard onNavigate={handleNavigate} onViewDriver={handleViewDriver} />
+        <EmergencyContactDashboard
+          onNavigate={handleNavigate}
+          onViewDriver={handleViewDriver}
+          onSwitchToDriver={handleSwitchToDriver}
+        />
       )}
 
       {currentScreen === 'ec-notifications' && <EmergencyContactNotifications onNavigate={handleNavigate} />}

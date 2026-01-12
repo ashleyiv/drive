@@ -1,4 +1,4 @@
-// components/EmergencyContactSettings.js
+// driveash/components/EmergencyContactSettings.js
 import React, { useEffect, useState, useMemo } from 'react';
 import {
   View,
@@ -7,10 +7,14 @@ import {
   StyleSheet,
   FlatList,
   Modal,
+  Image, // ✅ added
 } from 'react-native';
 import { Feather, Ionicons, Entypo, AntDesign, FontAwesome5 } from '@expo/vector-icons';
-
 import { supabase } from '../lib/supabase';
+import { formatPHPretty } from '../lib/phonePH';
+import { clearAvatarCache, getUserAvatarUrl, resolveAvatarUrl } from '../lib/avatar'; // ✅ added
+
+const ENABLE_MODE_SWITCH = false; // ✅ Disable switching UI without deleting logic
 
 const lightTheme = {
   background: '#F9FAFB',
@@ -36,20 +40,11 @@ const darkTheme = {
   navInactive: '#D1D5DB',
 };
 
-// Optional: same pretty formatting as Menu
-function formatPhonePretty(phone) {
-  if (!phone) return '';
-  const p = String(phone).trim();
-  if (p.includes(' ')) return p;
-
-  if (p.startsWith('+63') && p.length === 13) {
-    const rest = p.slice(3);
-    const a = rest.slice(0, 3);
-    const b = rest.slice(3, 6);
-    const c = rest.slice(6, 10);
-    return `+63 ${a} ${b} ${c}`;
-  }
-  return p;
+function displayNameFromProfile(p) {
+  const first = String(p?.first_name || '').trim();
+  const last = String(p?.last_name || '').trim();
+  const full = `${first}${first && last ? ' ' : ''}${last}`.trim();
+  return full || String(p?.email || 'Emergency Contact');
 }
 
 export default function EmergencyContactSettings({ onNavigate, onSwitchToDriver }) {
@@ -60,10 +55,14 @@ export default function EmergencyContactSettings({ onNavigate, onSwitchToDriver 
   const [showDisconnectModal, setShowDisconnectModal] = useState(false);
   const [selectedAccount, setSelectedAccount] = useState(null);
 
-  // NEW: profile state
+  // Profile state
   const [profileLoading, setProfileLoading] = useState(true);
   const [profileName, setProfileName] = useState('Emergency Contact');
   const [profilePhone, setProfilePhone] = useState('—');
+
+  // ✅ Avatar state
+  const [profileAvatarUrl, setProfileAvatarUrl] = useState(null);
+  const [avatarCacheBust, setAvatarCacheBust] = useState(Date.now());
 
   const theme = isDarkMode ? darkTheme : lightTheme;
 
@@ -82,13 +81,14 @@ export default function EmergencyContactSettings({ onNavigate, onSwitchToDriver 
           if (isMounted) {
             setProfileName('Emergency Contact');
             setProfilePhone('—');
+            setProfileAvatarUrl(null);
           }
           return;
         }
 
         const { data: profile, error: profileErr } = await supabase
-          .from('profiles')
-          .select('first_name,last_name,phone')
+          .from('user_profiles')
+          .select('first_name,last_name,phone,email,avatar_url') // ✅ include avatar_url
           .eq('id', user.id)
           .maybeSingle();
 
@@ -97,26 +97,41 @@ export default function EmergencyContactSettings({ onNavigate, onSwitchToDriver 
           if (isMounted) {
             setProfileName('Emergency Contact');
             setProfilePhone('—');
+            setProfileAvatarUrl(null);
           }
           return;
         }
 
-        const first = (profile?.first_name ?? '').trim();
-        const last = (profile?.last_name ?? '').trim();
-        const fullName =
-          (first || last) ? `${first}${first && last ? ' ' : ''}${last}` : 'Emergency Contact';
+        const fullName = displayNameFromProfile(profile);
+        const phonePretty = formatPHPretty(profile?.phone) || '—';
 
-        const phonePretty = formatPhonePretty(profile?.phone) || '—';
+        // ✅ Resolve avatar first (DB may store full URL or storage path)
+        const resolvedDbAvatar = resolveAvatarUrl(profile?.avatar_url);
 
         if (isMounted) {
           setProfileName(fullName);
           setProfilePhone(phonePretty);
+
+          setProfileAvatarUrl(resolvedDbAvatar ?? null);
+          setAvatarCacheBust(Date.now());
+        }
+
+        // ✅ Fallback: if DB has no avatar_url (or resolve failed), use helper
+        if (!resolvedDbAvatar) {
+          clearAvatarCache(user.id);
+          const fallback = await getUserAvatarUrl(user.id);
+
+          if (isMounted) {
+            setProfileAvatarUrl(fallback ?? null);
+            setAvatarCacheBust(Date.now());
+          }
         }
       } catch (e) {
         console.log('[EmergencyContactSettings] loadProfile unexpected error:', e);
         if (isMounted) {
           setProfileName('Emergency Contact');
           setProfilePhone('—');
+          setProfileAvatarUrl(null);
         }
       } finally {
         if (isMounted) setProfileLoading(false);
@@ -136,7 +151,7 @@ export default function EmergencyContactSettings({ onNavigate, onSwitchToDriver 
     onSwitchToDriver?.();
   };
 
-  // Sample connected accounts
+  // sample connected accounts (kept, but your FlatList data is empty anyway)
   const connectedAccounts = useMemo(
     () => [
       { id: '1', name: 'John Doe', email: 'john@example.com' },
@@ -171,12 +186,13 @@ export default function EmergencyContactSettings({ onNavigate, onSwitchToDriver 
     </View>
   );
 
+  const avatarDisplayUri = profileAvatarUrl ? `${profileAvatarUrl}?t=${avatarCacheBust}` : null;
+
   return (
     <View style={[styles.container, { backgroundColor: theme.background }]}>
       <FlatList
         keyExtractor={(item) => item.id}
-        // You aren't rendering connectedAccounts right now; keeping renderConnectedAccount for later use.
-        data={[]}
+        data={[]} // keep as you had
         renderItem={renderConnectedAccount}
         ListHeaderComponent={
           <>
@@ -189,7 +205,15 @@ export default function EmergencyContactSettings({ onNavigate, onSwitchToDriver 
             <View style={[styles.card, { backgroundColor: theme.card }]}>
               <View style={styles.row}>
                 <View style={[styles.avatar, { backgroundColor: theme.secondary }]}>
-                  <Feather name="user" size={32} color={theme.primary} />
+                  {avatarDisplayUri ? (
+                    <Image
+                      source={{ uri: avatarDisplayUri }}
+                      style={{ width: '100%', height: '100%' }}
+                      resizeMode="cover"
+                    />
+                  ) : (
+                    <Feather name="user" size={32} color={theme.primary} />
+                  )}
                 </View>
                 <View>
                   <Text style={[styles.name, { color: theme.text }]}>
@@ -202,32 +226,34 @@ export default function EmergencyContactSettings({ onNavigate, onSwitchToDriver 
               </View>
             </View>
 
-            {/* Mode card */}
-            <View style={[styles.card, { backgroundColor: theme.card }]}>
-              <Text style={[styles.sectionLabel, { color: theme.subText }]}>Mode</Text>
-              <View style={styles.rowBetween}>
-                <View style={styles.row}>
-                  <View style={[styles.iconCircle, { backgroundColor: theme.secondary }]}>
-                    <AntDesign name="user-switch" size={20} color={theme.primary} />
+            {/* ✅ Mode card hidden (logic kept) */}
+            {ENABLE_MODE_SWITCH && (
+              <View style={[styles.card, { backgroundColor: theme.card }]}>
+                <Text style={[styles.sectionLabel, { color: theme.subText }]}>Mode</Text>
+                <View style={styles.rowBetween}>
+                  <View style={styles.row}>
+                    <View style={[styles.iconCircle, { backgroundColor: theme.secondary }]}>
+                      <AntDesign name="user-switch" size={20} color={theme.primary} />
+                    </View>
+                    <View>
+                      <Text style={[styles.itemTitle, { color: theme.text }]}>Driver Mode</Text>
+                      <Text style={[styles.itemSubtitle, { color: theme.subText }]}>
+                        Switch to driver features
+                      </Text>
+                    </View>
                   </View>
-                  <View>
-                    <Text style={[styles.itemTitle, { color: theme.text }]}>Driver Mode</Text>
-                    <Text style={[styles.itemSubtitle, { color: theme.subText }]}>
-                      Switch to driver features
-                    </Text>
-                  </View>
+                  <Pressable
+                    style={[
+                      styles.toggle,
+                      { backgroundColor: isDriverMode ? theme.primary : theme.divider },
+                    ]}
+                    onPress={() => setShowDriverConfirm(true)}
+                  >
+                    <View style={[styles.toggleKnob, isDriverMode && styles.toggleKnobOn]} />
+                  </Pressable>
                 </View>
-                <Pressable
-                  style={[
-                    styles.toggle,
-                    { backgroundColor: isDriverMode ? theme.primary : theme.divider },
-                  ]}
-                  onPress={() => setShowDriverConfirm(true)}
-                >
-                  <View style={[styles.toggleKnob, isDriverMode && styles.toggleKnobOn]} />
-                </Pressable>
               </View>
-            </View>
+            )}
 
             {/* Connected drivers + dark mode */}
             <View style={[styles.card, { backgroundColor: theme.card }]}>
@@ -275,23 +301,7 @@ export default function EmergencyContactSettings({ onNavigate, onSwitchToDriver 
         }
       />
 
-      {/* Driver mode confirm */}
-      <Modal transparent visible={showDriverConfirm} animationType="fade">
-        <View style={styles.modalOverlay}>
-          <View style={styles.modalCard}>
-            <Text style={styles.modalTitle}>Switch Mode</Text>
-            <Text style={styles.modalText}>Switch to Driver mode?</Text>
-            <View style={styles.modalActions}>
-              <Pressable onPress={() => setShowDriverConfirm(false)}>
-                <Text style={styles.cancelText}>Cancel</Text>
-              </Pressable>
-              <Pressable onPress={confirmDriverSwitch}>
-                <Text style={styles.confirmText}>Confirm</Text>
-              </Pressable>
-            </View>
-          </View>
-        </View>
-      </Modal>
+     
 
       {/* Logout confirm */}
       <Modal transparent visible={showLogoutConfirm} animationType="fade">
@@ -306,7 +316,6 @@ export default function EmergencyContactSettings({ onNavigate, onSwitchToDriver 
               <Pressable
                 onPress={() => {
                   setShowLogoutConfirm(false);
-                  // Keep your current navigation behavior:
                   onNavigate('login', {});
                 }}
               >
@@ -339,26 +348,9 @@ export default function EmergencyContactSettings({ onNavigate, onSwitchToDriver 
 
       {/* Bottom nav */}
       <View style={[styles.bottomNav, { backgroundColor: theme.card, borderColor: theme.divider }]}>
-        <NavItem
-          icon="users"
-          library="fa5"
-          label="Drivers"
-          theme={theme}
-          onPress={() => onNavigate('ec-dashboard')}
-        />
-        <NavItem
-          icon="bell"
-          label="Notifications"
-          theme={theme}
-          onPress={() => onNavigate('ec-notifications')}
-        />
-        <NavItem
-          icon="settings"
-          label="Settings"
-          active
-          theme={theme}
-          onPress={() => onNavigate('ec-settings')}
-        />
+        <NavItem icon="users" library="fa5" label="Drivers" theme={theme} onPress={() => onNavigate('ec-dashboard')} />
+        <NavItem icon="bell" label="Notifications" theme={theme} onPress={() => onNavigate('ec-notifications')} />
+        <NavItem icon="settings" label="Settings" active theme={theme} onPress={() => onNavigate('ec-settings')} />
       </View>
     </View>
   );
@@ -386,7 +378,17 @@ const styles = StyleSheet.create({
   card: { borderRadius: 12, padding: 16, margin: 10, marginTop: 0 },
   row: { flexDirection: 'row', alignItems: 'center', gap: 12 },
   rowBetween: { flexDirection: 'row', justifyContent: 'space-between' },
-  avatar: { width: 64, height: 64, borderRadius: 32, alignItems: 'center', justifyContent: 'center' },
+
+  // ✅ allow image to clip perfectly
+  avatar: {
+    width: 64,
+    height: 64,
+    borderRadius: 32,
+    alignItems: 'center',
+    justifyContent: 'center',
+    overflow: 'hidden',
+  },
+
   name: { fontSize: 16, fontWeight: '500' },
   email: { fontSize: 14 },
   sectionLabel: { fontSize: 14, marginBottom: 12 },

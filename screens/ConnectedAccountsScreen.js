@@ -1,143 +1,361 @@
-import React, { useState } from 'react';
-import { View, Text, Pressable, StyleSheet, FlatList, Modal } from 'react-native';
+// driveash/screens/ConnectedAccountsScreen.js
+import React, { useEffect, useMemo, useState } from 'react';
+import {
+  View,
+  Text,
+  StyleSheet,
+  FlatList,
+  Pressable,
+  ActivityIndicator,
+  Alert,
+  Image,
+  StatusBar,
+  Platform,
+} from 'react-native';
 import { Feather, Entypo } from '@expo/vector-icons';
+import { supabase } from '../lib/supabase';
+import { formatPHPretty } from '../lib/phonePH';
+import { resolveAvatarUrl } from '../lib/avatar';
 
-const lightTheme = {
-  background: '#F9FAFB',
-  card: '#FFFFFF',
-  text: '#111827',
-  subText: '#6B7280',
-  divider: '#E5E7EB',
-  primary: '#1E3A8A',
-  secondary: '#DBEAFE',
-  danger: '#DC2626',
-};
+function displayNameFromProfile(p) {
+  const first = String(p?.first_name || '').trim();
+  const last = String(p?.last_name || '').trim();
+  const full = `${first}${first && last ? ' ' : ''}${last}`.trim();
+  return full || String(p?.email || 'Driver');
+}
 
-const darkTheme = {
-  background: '#0F172A',
-  card: '#1E293B',
-  text: '#F9FAFB',
-  subText: '#94A3B8',
-  divider: '#334155',
-  primary: '#3B82F6',
-  secondary: '#1E40AF',
-  danger: '#F87171',
-};
+export default function ConnectedAccountsScreen({ onNavigate, isDarkMode = false }) {
+  const theme = useMemo(() => {
+    if (isDarkMode) {
+      return {
+        background: '#0F172A',
+        card: '#1E293B',
+        text: '#F9FAFB',
+        subText: '#94A3B8',
+        divider: '#334155',
+        primary: '#3B82F6',
+        danger: '#F87171',
+        secondary: '#e3e6f0ff',
+      };
+    }
+    return {
+      background: '#F9FAFB',
+      card: '#FFFFFF',
+      text: '#111827',
+      subText: '#6B7280',
+      divider: '#E5E7EB',
+      primary: '#1E3A8A',
+      danger: '#DC2626',
+      secondary: '#DBEAFE',
+    };
+  }, [isDarkMode]);
 
-export default function ConnectedAccountsScreen({ onNavigate, isDarkMode }) {
-  const [selectedAccount, setSelectedAccount] = useState(null);
-  const [showDisconnectModal, setShowDisconnectModal] = useState(false);
+  const [loading, setLoading] = useState(true);
+  const [accounts, setAccounts] = useState([]);
 
-  const theme = isDarkMode ? darkTheme : lightTheme;
+  const [actionOpen, setActionOpen] = useState(false);
+  const [selected, setSelected] = useState(null);
 
-  const connectedAccounts = [
-    { id: '1', name: 'John Doe', email: 'john@example.com' },
-    { id: '2', name: 'Jane Smith', email: 'jane@example.com' },
-    { id: '3', name: 'Bob Johnson', email: 'bob@example.com' },
-  ];
+  const topPad =
+    Platform.OS === 'android'
+      ? (StatusBar.currentHeight || 0) + 6
+      : 18;
 
-  const disconnectAccount = () => {
-    console.log('Disconnected:', selectedAccount.name);
-    setShowDisconnectModal(false);
-    setSelectedAccount(null);
+  const loadConnectedDrivers = async () => {
+    try {
+      setLoading(true);
+
+      const { data: userRes, error: userErr } = await supabase.auth.getUser();
+      if (userErr) throw userErr;
+
+      const me = userRes?.user;
+      if (!me?.id) {
+        setAccounts([]);
+        return;
+      }
+
+      // 1) Get accepted links where YOU are the target
+      const { data: links, error: linkErr } = await supabase
+        .from('emergency_contact_requests')
+        .select('id, requester_id, target_id, status, created_at')
+        .eq('target_id', me.id)
+        .eq('status', 'accepted')
+        .order('created_at', { ascending: false });
+
+      if (linkErr) throw linkErr;
+
+      const driverIds = Array.from(
+        new Set((links || []).map((r) => r.requester_id).filter(Boolean).map(String))
+      );
+
+      if (driverIds.length === 0) {
+        setAccounts([]);
+        return;
+      }
+
+      // 2) Fetch profiles for those requester drivers
+      const { data: profs, error: profErr } = await supabase
+        .from('user_profiles')
+        .select('id,email,first_name,last_name,phone,avatar_url')
+        .in('id', driverIds);
+
+      if (profErr) throw profErr;
+
+      const profById = {};
+      (profs || []).forEach((p) => (profById[String(p.id)] = p));
+
+      // map to display items
+      const mapped = driverIds.map((uid) => {
+        const p = profById[String(uid)] || null;
+
+        const name = displayNameFromProfile(p);
+        const email = String(p?.email || '—');
+        const phone = formatPHPretty(p?.phone) || '—';
+
+        const avatarResolved = resolveAvatarUrl(p?.avatar_url);
+        const avatarUri = typeof avatarResolved === 'string' ? avatarResolved : null;
+
+        // link id (for disconnect update)
+        const linkRow = (links || []).find((l) => String(l.requester_id) === String(uid)) || null;
+
+        return {
+          id: String(uid),
+          link_id: linkRow?.id ?? null,
+          name,
+          email,
+          phone,
+          avatarUri,
+        };
+      });
+
+      setAccounts(mapped);
+    } catch (e) {
+      console.log('[ConnectedAccountsScreen] loadConnectedDrivers error:', e);
+      Alert.alert('Error', 'Failed to load connected drivers.');
+      setAccounts([]);
+    } finally {
+      setLoading(false);
+    }
   };
 
-  const renderAccount = ({ item }) => (
-    <View style={[styles.card, { backgroundColor: theme.card }]}>
-      <View style={styles.rowBetween}>
-        <View>
-          <Text style={[styles.itemTitle, { color: theme.text }]}>{item.name}</Text>
-          <Text style={[styles.itemSubtitle, { color: theme.subText }]}>{item.email}</Text>
+  useEffect(() => {
+    loadConnectedDrivers();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  const openActions = (item) => {
+    setSelected(item);
+    setActionOpen(true);
+  };
+
+  const closeActions = () => {
+    setActionOpen(false);
+    setSelected(null);
+  };
+
+  const disconnectSelected = async () => {
+    try {
+      if (!selected?.id) return;
+
+      const { data: userRes, error: userErr } = await supabase.auth.getUser();
+      if (userErr) throw userErr;
+
+      const me = userRes?.user;
+      if (!me?.id) return;
+
+      closeActions();
+
+      // ✅ minimal & safe: mark relationship as cancelled
+      const { error } = await supabase
+        .from('emergency_contact_requests')
+        .update({
+          status: 'cancelled',
+          responded_at: new Date().toISOString(),
+        })
+        .eq('target_id', me.id)
+        .eq('requester_id', selected.id)
+        .eq('status', 'accepted');
+
+      if (error) throw error;
+
+      Alert.alert('Disconnected', `${selected.name} has been disconnected.`);
+      await loadConnectedDrivers();
+    } catch (e) {
+      console.log('[ConnectedAccountsScreen] disconnect error:', e);
+      Alert.alert('Error', e?.message || 'Failed to disconnect.');
+    }
+  };
+
+  const renderItem = ({ item }) => {
+    return (
+      <View style={[styles.card, { backgroundColor: theme.card, borderColor: theme.divider }]}>
+        <View style={styles.rowBetween}>
+          <View style={styles.row}>
+            <View style={[styles.avatar, { backgroundColor: theme.secondary }]}>
+              {item.avatarUri ? (
+                <Image source={{ uri: item.avatarUri }} style={{ width: '100%', height: '100%' }} resizeMode="cover" />
+              ) : (
+                <Feather name="user" size={22} color={theme.primary} />
+              )}
+            </View>
+
+            <View style={{ flex: 1 }}>
+              <Text style={[styles.name, { color: theme.text }]} numberOfLines={1}>
+                {item.name}
+              </Text>
+              <Text style={[styles.sub, { color: theme.subText }]} numberOfLines={1}>
+                {item.email}
+              </Text>
+              <Text style={[styles.sub, { color: theme.subText }]} numberOfLines={1}>
+                {item.phone}
+              </Text>
+            </View>
+          </View>
+
+          <Pressable onPress={() => openActions(item)} style={{ padding: 6 }}>
+            <Entypo name="dots-three-vertical" size={18} color={theme.subText} />
+          </Pressable>
         </View>
-        <Pressable
-          onPress={() => {
-            setSelectedAccount(item);
-            setShowDisconnectModal(true);
-          }}
-        >
-          <Entypo name="dots-three-vertical" size={20} color={theme.subText} />
-        </Pressable>
       </View>
-    </View>
-  );
+    );
+  };
 
   return (
     <View style={[styles.container, { backgroundColor: theme.background }]}>
-      {/* HEADER */}
-      <View style={[styles.header, { backgroundColor: theme.primary }]}>
-        <Pressable style={styles.backButton} onPress={() => onNavigate('ec-settings')}>
-          <View style={styles.backRow}>
-            <Feather name="chevron-left" size={24} color="#DBEAFE" />
-            <Text style={styles.backText}>Back</Text>
-          </View>
+      {/* Header (padded down so it won't overlap the clock) */}
+      <View style={[styles.header, { backgroundColor: theme.primary, paddingTop: topPad }]}>
+        <Pressable
+          onPress={() => onNavigate?.('ec-settings')}
+          style={styles.backBtn}
+        >
+          <Feather name="arrow-left" size={20} color="#fff" />
         </Pressable>
 
-        <View style={{ marginTop: 16 }}> 
+        <View style={{ flex: 1 }}>
           <Text style={styles.headerTitle}>Connected Drivers</Text>
+          <Text style={styles.headerSubtitle}>Drivers who added you as emergency contact</Text>
         </View>
       </View>
 
-      <FlatList
-        data={connectedAccounts}
-        keyExtractor={(item) => item.id}
-        renderItem={renderAccount}
-        contentContainerStyle={{ paddingBottom: 40 }}
-      />
+      {loading ? (
+        <View style={{ paddingTop: 30, alignItems: 'center' }}>
+          <ActivityIndicator />
+          <Text style={{ marginTop: 10, color: theme.subText, fontWeight: '700' }}>Loading…</Text>
+        </View>
+      ) : accounts.length === 0 ? (
+        <View style={{ paddingTop: 34, alignItems: 'center', paddingHorizontal: 18 }}>
+          <Feather name="users" size={38} color={theme.divider} />
+          <Text style={{ marginTop: 10, color: theme.subText, fontWeight: '800', textAlign: 'center' }}>
+            No connected drivers yet
+          </Text>
+        </View>
+      ) : (
+        <FlatList
+          data={accounts}
+          keyExtractor={(it) => it.id}
+          renderItem={renderItem}
+          contentContainerStyle={{ padding: 12, paddingBottom: 110 }} // ✅ bottom space
+        />
+      )}
 
-
-      <Modal transparent visible={showDisconnectModal} animationType="fade">
+      {/* Action modal (simple + functional) */}
+      {actionOpen && (
         <View style={styles.modalOverlay}>
-          <View style={styles.modalCard}>
-            <Text style={styles.modalTitle}>Disconnect Account</Text>
-            <Text style={styles.modalText}>
-              Are you sure you want to disconnect {selectedAccount?.name}?
+          <View style={[styles.modalCard, { backgroundColor: theme.card }]}>
+            <Text style={[styles.modalTitle, { color: theme.text }]}>Actions</Text>
+            <Text style={[styles.modalText, { color: theme.subText }]}>
+              {selected?.name || 'Driver'}
             </Text>
-            <View style={styles.modalActions}>
-              <Pressable onPress={() => setShowDisconnectModal(false)}>
-                <Text style={styles.cancelText}>Cancel</Text>
-              </Pressable>
-              <Pressable onPress={disconnectAccount}>
-                <Text style={[styles.confirmText, { color: theme.danger }]}>Disconnect</Text>
-              </Pressable>
-            </View>
+
+            <Pressable
+              onPress={() => {
+                Alert.alert(
+                  'Disconnect?',
+                  `Disconnect ${selected?.name || 'this driver'}?`,
+                  [
+                    { text: 'Cancel', style: 'cancel' },
+                    { text: 'Disconnect', style: 'destructive', onPress: disconnectSelected },
+                  ]
+                );
+              }}
+              style={[styles.actionBtn, { backgroundColor: '#FEE2E2' }]}
+            >
+              <Text style={{ color: theme.danger, fontWeight: '900' }}>Disconnect</Text>
+            </Pressable>
+
+            <Pressable onPress={closeActions} style={[styles.actionBtn, { backgroundColor: theme.divider }]}>
+              <Text style={{ color: theme.text, fontWeight: '800' }}>Close</Text>
+            </Pressable>
           </View>
         </View>
-      </Modal>
+      )}
     </View>
   );
 }
 
-
 const styles = StyleSheet.create({
   container: { flex: 1 },
-  header: { paddingVertical: 24, paddingHorizontal: 24, justifyContent: 'center' },
-  backButton: {
-    position: 'absolute',
-    top: 10,
-    left: 18,
+
+  header: {
+    paddingHorizontal: 14,
+    paddingBottom: 14,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
   },
-  backRow: {
-  flexDirection: 'row',
-  alignItems: 'center',
-  gap: 4, 
-},
-backText: {
-  color: '#DBEAFE',
-  fontSize: 14,
-  fontWeight: '500',
-},
-  headerTitle: { color: '#FFF', fontSize: 24, fontWeight: '600' },
-  headerSubtitle: { color: '#DBEAFE', fontSize: 14, marginTop: 4 },
-  card: { borderRadius: 12, padding: 16, marginHorizontal: 16, marginVertical: 4 },
-  rowBetween: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
+  backBtn: {
+    width: 38,
+    height: 38,
+    borderRadius: 19,
+    backgroundColor: 'rgba(255,255,255,0.18)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  headerTitle: { color: '#fff', fontSize: 18, fontWeight: '900' },
+  headerSubtitle: { color: 'rgba(255,255,255,0.85)', fontSize: 12, marginTop: 2, fontWeight: '700' },
+
+  card: {
+    borderRadius: 14,
+    padding: 12,
+    borderWidth: 1,
+    marginBottom: 10,
+  },
   row: { flexDirection: 'row', alignItems: 'center', gap: 12 },
-  itemTitle: { fontSize: 16, fontWeight: '500' },
-  itemSubtitle: { fontSize: 14, marginTop: 4 },
-  modalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.4)', justifyContent: 'center', alignItems: 'center' },
-  modalCard: { width: '85%', backgroundColor: 'white', borderRadius: 12, padding: 20 },
-  modalTitle: { fontSize: 18, fontWeight: 'bold', marginBottom: 8 },
-  modalText: { fontSize: 14, color: '#4B5563', marginBottom: 20 },
-  modalActions: { flexDirection: 'row', justifyContent: 'flex-end', gap: 20 },
-  cancelText: { color: '#6B7280' },
-  confirmText: { fontWeight: 'bold' },
+  rowBetween: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
+
+  avatar: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    overflow: 'hidden',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+
+  name: { fontSize: 14, fontWeight: '900' },
+  sub: { fontSize: 12, fontWeight: '700', marginTop: 2 },
+
+  modalOverlay: {
+    position: 'absolute',
+    top: 0, left: 0, right: 0, bottom: 0,
+    backgroundColor: 'rgba(0,0,0,0.35)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingHorizontal: 18,
+  },
+  modalCard: {
+    width: '100%',
+    borderRadius: 16,
+    padding: 16,
+  },
+  modalTitle: { fontSize: 16, fontWeight: '900' },
+  modalText: { marginTop: 6, fontSize: 13, fontWeight: '700' },
+
+  actionBtn: {
+    marginTop: 12,
+    height: 46,
+    borderRadius: 12,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
 });

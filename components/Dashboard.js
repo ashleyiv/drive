@@ -1,26 +1,105 @@
+// driveash/components/Dashboard.js
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
   View,
   Text,
   Image,
   TouchableOpacity,
-  ScrollView,
   Modal,
   Pressable,
   ActivityIndicator,
+  Alert,
+  Switch,
+  Animated,
+  Easing,
 } from 'react-native';
-import Svg, { Path, Line, Circle, G } from 'react-native-svg';
+
+
 import { Ionicons, Feather, MaterialCommunityIcons } from '@expo/vector-icons';
 import driverImage from '../assets/driver.png';
+import { DeviceSession } from '../lib/deviceSession';
+import { supabase } from '../lib/supabase';
+import { getUserAvatarUrl, clearAvatarCache } from '../lib/avatar';
+import * as Location from 'expo-location';
+import { startDriverLocationStream, stopDriverLocationStream } from '../lib/driverStatus';
+function ModeSwitchOverlay({ visible, title, subtitle, stylesObj }) {
+  const progress = useRef(new Animated.Value(0)).current;
+  const loopRef = useRef(null);
 
-export default function Dashboard({ onNavigate }) {
-  const [selectedMonitoring, setSelectedMonitoring] = useState(null);
+  useEffect(() => {
+    if (!visible) return;
+
+    progress.setValue(0);
+
+ loopRef.current = Animated.loop(
+  Animated.timing(progress, {
+    toValue: 1,
+    duration: 1200,
+    easing: Easing.inOut(Easing.ease),
+    useNativeDriver: false,
+  }),
+  { resetBeforeIteration: true }
+);
+
+
+    loopRef.current.start();
+
+    return () => {
+      try {
+        loopRef.current?.stop?.();
+      } catch {}
+    };
+  }, [visible, progress]);
+
+  if (!visible) return null;
+
+  const barWidth = progress.interpolate({
+  inputRange: [0, 1],
+  outputRange: ['0%', '100%'],
+});
+
+  return (
+    <Modal transparent visible={visible} animationType="fade">
+      <View style={stylesObj.modeOverlayBackdrop}>
+        <View style={stylesObj.modeOverlayCard}>
+          <ActivityIndicator />
+          <Text style={stylesObj.modeOverlayTitle}>{title}</Text>
+          <Text style={stylesObj.modeOverlaySubtitle}>{subtitle}</Text>
+
+          <View style={stylesObj.modeBarTrack}>
+            <Animated.View style={[stylesObj.modeBarFill, { width: barWidth }]} />
+          </View>
+        </View>
+      </View>
+    </Modal>
+  );
+}
+
+export default function Dashboard({ onNavigate, onSwitchToEmergencyContact }) {
   const [showWarningDetails, setShowWarningDetails] = useState(false);
+  // ✅ Mode indicator (shows for ~2.5s on screen entry)
+// ✅ Mode overlay shows ONLY when switching into Driver mode
+const [modeOverlayVisible, setModeOverlayVisible] = useState(false);
+
+useEffect(() => {
+  const pending = DeviceSession.get?.()?.pendingModeSwitchTo;
+
+  // show ONLY if previous screen requested switching to DRIVER
+  if (pending === 'driver') {
+    setModeOverlayVisible(true);
+
+    // clear so it won't show again
+    DeviceSession.set?.({ pendingModeSwitchTo: null });
+
+    const t = setTimeout(() => setModeOverlayVisible(false), 2500);
+    return () => clearTimeout(t);
+  }
+}, []);
+
+
   const [showNotifications, setShowNotifications] = useState(false);
 
-  // ===========================
-  // Device Status (DEMO) - kept
-  // ===========================
+  // Device Status (DEMO)
   const [deviceModalVisible, setDeviceModalVisible] = useState(false);
   const [scanState, setScanState] = useState('idle'); // 'idle' | 'scanning' | 'found' | 'pairing' | 'connected'
   const [availableDevices, setAvailableDevices] = useState([]);
@@ -28,14 +107,80 @@ export default function Dashboard({ onNavigate }) {
   const [connectedDevice, setConnectedDevice] = useState(null); // { id, name, rssi }
   const [batteryPercent, setBatteryPercent] = useState(null);
   const batteryTimerRef = useRef(null);
+const locationSubRef = useRef(null);
 
-  const currentAlert = {
-    level: 'level3',
-    status: 'EXTREMELY DROWSY',
-    color: '#EF4444',
-    timestamp: '9:35 PM',
-    date: '12-15-2025',
+  // Demo Bluetooth ON/OFF (KEEP state + logic, just hide toggle UI)
+  const [bluetoothEnabled, setBluetoothEnabled] = useState(
+    DeviceSession.get()?.bluetoothEnabled ?? true
+  );
+
+  // Reconnect prompt modal
+  const [showReconnectPrompt, setShowReconnectPrompt] = useState(false);
+
+  // ✅ Avatar
+  const [myAvatar, setMyAvatar] = useState(null);
+
+  // ✅ Profile name
+  const [myFirstName, setMyFirstName] = useState('');
+  const [myLastName, setMyLastName] = useState('');
+  const [myEmail, setMyEmail] = useState('');
+  // ✅ Latest Warning (from driver_warnings)
+  const [latestWarning, setLatestWarning] = useState(null);
+  const [loadingLatestWarning, setLoadingLatestWarning] = useState(true);
+
+  const levelNumToKey = (n) => {
+    if (n === 1) return 'level1';
+    if (n === 2) return 'level2';
+    return 'level3';
   };
+
+  const statusFromLevel = (n) => {
+    if (n === 1) return 'SLIGHTLY DROWSY';
+    if (n === 2) return 'MODERATELY DROWSY';
+    return 'EXTREMELY DROWSY';
+  };
+
+  const fmtTime = (iso) => {
+    const d = new Date(iso);
+    return d.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' });
+  };
+
+  const fmtDate = (iso) => {
+    const d = new Date(iso);
+    // sample output: 01-11-2026 (like your UI)
+    const mm = String(d.getMonth() + 1).padStart(2, '0');
+    const dd = String(d.getDate()).padStart(2, '0');
+    const yyyy = d.getFullYear();
+    return `${mm}-${dd}-${yyyy}`;
+  };
+
+    const currentAlert = useMemo(() => {
+    // fallback (if no DB data yet)
+    const fallback = {
+      level: 'level3',
+      status: 'EXTREMELY DROWSY',
+      color: '#EF4444',
+      timestamp: '9:35 PM',
+      date: '12-15-2025',
+      snapshot_url: null,
+    };
+
+    if (!latestWarning) return fallback;
+
+    const levelKey = levelNumToKey(latestWarning.level);
+    const status = statusFromLevel(latestWarning.level);
+    const color = levelKey === 'level1' ? '#10B981' : levelKey === 'level2' ? '#F59E0B' : '#EF4444';
+
+    return {
+      level: levelKey,
+      status,
+      color,
+      timestamp: fmtTime(latestWarning.created_at),
+      date: fmtDate(latestWarning.created_at),
+      snapshot_url: latestWarning.snapshot_url || null,
+    };
+  }, [latestWarning]);
+
 
   const getLevelText = (level) => {
     if (level === 'level3') return 'LEVEL 3 WARNING';
@@ -44,7 +189,6 @@ export default function Dashboard({ onNavigate }) {
     return '';
   };
 
-  // ---------- Device demo helpers ----------
   const demoDevices = useMemo(
     () => [
       { id: 'drive-001', name: 'D.R.I.V.E', rssi: -42 },
@@ -54,10 +198,54 @@ export default function Dashboard({ onNavigate }) {
     []
   );
 
+  // Keep saving bluetoothEnabled in session (flow preserved)
+  useEffect(() => {
+    DeviceSession.set({ bluetoothEnabled });
+  }, [bluetoothEnabled]);
+
   const openDeviceModal = () => setDeviceModalVisible(true);
   const closeDeviceModal = () => setDeviceModalVisible(false);
 
+  const requireBluetoothOrWarn = () => {
+    if (!bluetoothEnabled) {
+      Alert.alert(
+        'Bluetooth Required',
+        'Please turn on Bluetooth to connect to D.R.I.V.E.\n\n(Demo note: Expo Go cannot read real Bluetooth state, so this is simulated internally.)'
+      );
+      return false;
+    }
+    return true;
+  };
+
+  const saveLastPairedToSupabaseMetadata = async (device) => {
+    try {
+      await supabase.auth.updateUser({
+        data: {
+          lastPairedDeviceId: device?.id ?? null,
+          lastPairedDeviceName: device?.name ?? null,
+        },
+      });
+    } catch (e) {
+      console.log('[Dashboard] updateUser metadata failed:', e);
+    }
+  };
+
+  const clearLastPairedFromSupabaseMetadata = async () => {
+    try {
+      await supabase.auth.updateUser({
+        data: {
+          lastPairedDeviceId: null,
+          lastPairedDeviceName: null,
+        },
+      });
+    } catch (e) {
+      console.log('[Dashboard] clear metadata failed:', e);
+    }
+  };
+
   const startScan = () => {
+    if (!requireBluetoothOrWarn()) return;
+
     setSelectedDevice(null);
     setAvailableDevices([]);
     setScanState('scanning');
@@ -67,27 +255,285 @@ export default function Dashboard({ onNavigate }) {
       setScanState('found');
     }, 1600);
   };
+  useEffect(() => {
+    let mounted = true;
+    let channel = null;
+
+    const loadLatestWarning = async () => {
+      try {
+        setLoadingLatestWarning(true);
+
+        const { data: userRes, error: userErr } = await supabase.auth.getUser();
+        if (userErr) throw userErr;
+
+        const me = userRes?.user;
+        if (!me?.id) {
+          if (mounted) setLatestWarning(null);
+          return;
+        }
+
+        const { data, error } = await supabase
+          .from('driver_warnings')
+          .select('id, created_at, level, monitor_type, location_text, snapshot_url')
+          .eq('user_id', me.id)
+          .order('created_at', { ascending: false })
+          .limit(1);
+
+        if (error) throw error;
+
+        if (mounted) {
+          setLatestWarning((data && data[0]) ? data[0] : null);
+        }
+
+        // ✅ realtime: auto refresh when IoT inserts a new warning row
+        if (!channel) {
+          channel = supabase
+            .channel(`dw_latest_${me.id}`)
+            .on(
+              'postgres_changes',
+              { event: 'INSERT', schema: 'public', table: 'driver_warnings', filter: `user_id=eq.${me.id}` },
+              () => loadLatestWarning()
+            )
+            .subscribe();
+        }
+      } catch (e) {
+        console.log('[Dashboard] loadLatestWarning error:', e);
+        if (mounted) setLatestWarning(null);
+      } finally {
+        if (mounted) setLoadingLatestWarning(false);
+      }
+    };
+
+    loadLatestWarning();
+
+    return () => {
+      mounted = false;
+      if (channel) supabase.removeChannel(channel);
+    };
+  }, []);
+
+  // ✅ Load my avatar (from DB user_profiles.avatar_url)
+  useEffect(() => {
+    let mounted = true;
+
+    const loadMyAvatar = async () => {
+      try {
+        const { data: userRes, error } = await supabase.auth.getUser();
+        if (error) throw error;
+
+        const me = userRes?.user;
+        if (!me?.id) {
+          if (mounted) setMyAvatar(null);
+          return;
+        }
+
+        // refresh cache on screen mount so it reflects latest avatar changes
+        clearAvatarCache(me.id);
+
+        const url = await getUserAvatarUrl(me.id);
+        if (mounted) setMyAvatar(url);
+      } catch (e) {
+        console.log('[Dashboard] loadMyAvatar error:', e);
+        if (mounted) setMyAvatar(null);
+      }
+    };
+
+    loadMyAvatar();
+    return () => {
+      mounted = false;
+    };
+  }, []);
+
+  // ✅ Load my profile name from user_profiles
+  useEffect(() => {
+    let mounted = true;
+
+    const loadMyProfileName = async () => {
+      try {
+        const { data: userRes, error: userErr } = await supabase.auth.getUser();
+        if (userErr) throw userErr;
+
+        const me = userRes?.user;
+        const authEmail = String(me?.email || '').trim().toLowerCase();
+        if (mounted) setMyEmail(authEmail);
+
+        if (!me?.id) return;
+
+        const { data: prof, error: profErr } = await supabase
+          .from('user_profiles')
+          .select('first_name,last_name,email')
+          .eq('id', me.id)
+          .maybeSingle();
+
+        if (profErr) throw profErr;
+
+        const first = String(prof?.first_name || '').trim();
+        const last = String(prof?.last_name || '').trim();
+        const dbEmail = String(prof?.email || '').trim().toLowerCase();
+
+        if (!mounted) return;
+
+        setMyFirstName(first);
+        setMyLastName(last);
+        if (dbEmail) setMyEmail(dbEmail);
+      } catch (e) {
+        console.log('[Dashboard] loadMyProfileName error:', e);
+      }
+    };
+
+    loadMyProfileName();
+
+    return () => {
+      mounted = false;
+    };
+  }, []);
+
+  // Restore connection state when arriving from Emergency Contact pairing
+  useEffect(() => {
+    const s = DeviceSession.get();
+    if (s?.connectedDevice) {
+      setConnectedDevice(s.connectedDevice);
+      setBatteryPercent(s.batteryPercent ?? 95);
+      setScanState(s.scanState ?? 'connected');
+      // ✅ if we restored a connected session, ensure streaming is running
+(async () => {
+  try {
+    if (!locationSubRef.current) {
+      locationSubRef.current = await startDriverLocationStream();
+    }
+  } catch (e) {
+    console.log('[Dashboard] restore startDriverLocationStream failed:', e);
+  }
+})();
+
+    }
+  }, []);
+  // ✅ ADD ONLY: safety net - ensure stream is running when connected (any path)
+useEffect(() => {
+  let cancelled = false;
+
+  (async () => {
+    try {
+      // start streaming only when "connected"
+      if (scanState === 'connected' && connectedDevice) {
+        if (!locationSubRef.current) {
+          locationSubRef.current = await startDriverLocationStream();
+        }
+      }
+    } catch (e) {
+      if (!cancelled) {
+        console.log('[Dashboard] auto startDriverLocationStream failed:', e);
+      }
+    }
+  })();
+
+  return () => {
+    cancelled = true;
+  };
+}, [scanState, connectedDevice]);
+
+// ✅ ADD ONLY: safety net - stop stream when disconnected (any path)
+useEffect(() => {
+  if (!(scanState === 'connected' && connectedDevice)) {
+    Promise.resolve(stopDriverLocationStream(locationSubRef.current, { setMode: false }))
+      .catch((e) => console.log('[Dashboard] stopDriverLocationStream (auto) failed:', e))
+      .finally(() => {
+        locationSubRef.current = null;
+      });
+  }
+}, [scanState, connectedDevice]);
+
 
   const pairSelectedDevice = () => {
+    if (!requireBluetoothOrWarn()) return;
     if (!selectedDevice) return;
 
     setScanState('pairing');
 
-    setTimeout(() => {
+    setTimeout(async () => {
       setConnectedDevice(selectedDevice);
       setScanState('connected');
       setBatteryPercent(95);
+
+      DeviceSession.set({
+        scanState: 'connected',
+        connectedDevice: selectedDevice,
+        batteryPercent: 95,
+        lastPairedDevice: selectedDevice,
+      });
+
+      await saveLastPairedToSupabaseMetadata(selectedDevice);
+try {
+  // start streaming driver location NOW that we're "driving"
+  // store the subscription so we can stop it later
+  if (!locationSubRef.current) {
+    locationSubRef.current = await startDriverLocationStream();
+  }
+} catch (e) {
+  console.log('[Dashboard] startDriverLocationStream failed:', e);
+  Alert.alert('Location', e?.message || 'Failed to start location tracking');
+}
       closeDeviceModal();
     }, 1400);
   };
 
+  // Disconnect -> prompt reconnect
   const disconnectDevice = () => {
     setConnectedDevice(null);
     setBatteryPercent(null);
     setScanState('idle');
     setSelectedDevice(null);
     setAvailableDevices([]);
+Promise.resolve(stopDriverLocationStream(locationSubRef.current, { setMode: true }))
+  .catch((e) => console.log('[Dashboard] stopDriverLocationStream (disconnect) failed:', e))
+  .finally(() => {
+    locationSubRef.current = null;
+  });
+
+
+    DeviceSession.clearConnection();
+
+    closeDeviceModal();
+    setShowReconnectPrompt(true);
   };
+
+  // Reconnect YES: reopen modal + scan
+  const handleReconnectYes = () => {
+    setShowReconnectPrompt(false);
+    openDeviceModal();
+    startScan();
+  };
+
+  // Reconnect NO: clear remembered device + go back EmergencyContactDashboard
+  const handleReconnectNo = async () => {
+    setShowReconnectPrompt(false);
+
+    // user said "No" => don't auto-connect again next time
+    await clearLastPairedFromSupabaseMetadata();
+if (onSwitchToEmergencyContact) {
+ onSwitchToEmergencyContact();
+return;
+  return;
+}
+
+
+    Alert.alert(
+      'Switch mode missing',
+      'onSwitchToEmergencyContact was not passed to Dashboard. Add it in App.js so this redirect works correctly.'
+    );
+    onNavigate?.('ec-dashboard');
+  };
+
+useEffect(() => {
+  return () => {
+    Promise.resolve(stopDriverLocationStream(locationSubRef.current, { setMode: false }))
+      .catch((e) => console.log('[Dashboard] stopDriverLocationStream (unmount) failed:', e))
+      .finally(() => {
+        locationSubRef.current = null;
+      });
+  };
+}, []);
+
 
   useEffect(() => {
     if (batteryTimerRef.current) {
@@ -111,145 +557,24 @@ export default function Dashboard({ onNavigate }) {
     };
   }, [scanState, connectedDevice]);
 
-  // ===========================
-  // NEW: Demo report datasets
-  // ===========================
-  const reports = useMemo(() => {
-    // simple helper to generate smooth-ish noise
-    const makeSeries = ({ n, base, noise, spikes = [] }) => {
-      const arr = [];
-      for (let i = 0; i < n; i++) {
-        const rand = (Math.random() - 0.5) * noise;
-        const prev = arr[i - 1] ?? base;
-        const smooth = prev + rand;
-        arr.push(smooth);
-      }
-      // apply spikes: { start, end, add, curve? }
-      spikes.forEach((s) => {
-        for (let i = s.start; i <= s.end && i < n; i++) {
-          const t = (i - s.start) / Math.max(1, s.end - s.start);
-          const bump = s.curve === 'bell'
-            ? Math.sin(Math.PI * t) * s.add
-            : s.add;
-          arr[i] = arr[i] + bump;
-        }
-      });
-      return arr;
-    };
+  // ✅ Build Full Name (never show "—")
+  const myFullName = useMemo(() => {
+    const first = String(myFirstName || '').trim();
+    const last = String(myLastName || '').trim();
+    const full = `${first}${first && last ? ' ' : ''}${last}`.trim();
+    if (full) return full;
 
-    // Eye-lid (PERCLOS per day) — upward trend with bumps
-    const perclos = makeSeries({
-      n: 24,
-      base: 0.12,
-      noise: 0.05,
-      spikes: [
-        { start: 6, end: 9, add: 0.05, curve: 'bell' },
-        { start: 14, end: 18, add: 0.08, curve: 'bell' },
-      ],
-    }).map((v, i) => Math.max(0.02, Math.min(0.65, v + i * 0.01)));
-
-    // Yawn (MAR vs Time) — low baseline then one big yawn event like your image
-    const mar = makeSeries({
-      n: 120,
-      base: 0.11,
-      noise: 0.02,
-      spikes: [{ start: 48, end: 85, add: 0.48, curve: 'bell' }],
-    }).map((v) => Math.max(0.05, Math.min(0.78, v)));
-
-    // Head pitch (degrees) — one small "mirror check" + one sustained nod
-    const headPitch = makeSeries({
-      n: 150,
-      base: 5,
-      noise: 1.4,
-      spikes: [
-        { start: 30, end: 45, add: 9, curve: 'bell' },   // small bump
-        { start: 95, end: 125, add: 26, curve: 'bell' }, // sustained nod
-      ],
-    }).map((v) => Math.max(0, Math.min(60, v)));
-
-    // Hands on wheel pie (demo)
-    const handOnWheel = { on: 81, off: 19 }; // percent
-
-    return {
-      perclos,
-      mar,
-      headPitch,
-      handOnWheel,
-      meta: {
-        date1: 'December 15, 2025',
-        date2: 'December 14, 2025',
-      },
-    };
-  }, []);
-
-  // ===========================
-  // NEW: Head nod analysis (frontend-only)
-  // ===========================
-  const headNodAnalysis = useMemo(() => {
-    // threshold zones like your chart idea:
-    // <15 normal, 15-25 caution, >25 sustained nod / drowsy
-    const THRESH = 25;
-    const series = reports.headPitch;
-
-    // Assume 150 points across 30 seconds -> 0.2s per point
-    const secondsPerPoint = 30 / Math.max(1, series.length - 1);
-
-    // Find segments above threshold
-    const segments = [];
-    let start = null;
-    for (let i = 0; i < series.length; i++) {
-      const above = series[i] >= THRESH;
-      if (above && start == null) start = i;
-      if (!above && start != null) {
-        segments.push({ start, end: i - 1 });
-        start = null;
-      }
+    const email = String(myEmail || '').trim();
+    if (email.includes('@')) {
+      const local = email.split('@')[0];
+      return local ? local : 'User';
     }
-    if (start != null) segments.push({ start, end: series.length - 1 });
+    return 'User';
+  }, [myFirstName, myLastName, myEmail]);
 
-    // Compute strongest segment
-    const enriched = segments.map((seg) => {
-      let peak = -Infinity;
-      let area = 0;
-      for (let i = seg.start; i <= seg.end; i++) {
-        peak = Math.max(peak, series[i]);
-        area += Math.max(0, series[i] - THRESH); // "severity area"
-      }
-      const duration = (seg.end - seg.start) * secondsPerPoint;
-      const severityScore = area * secondsPerPoint; // deg-seconds above threshold
-      return { ...seg, peak, duration, severityScore };
-    });
-
-    const strongest = enriched.sort((a, b) => b.severityScore - a.severityScore)[0] || null;
-
-    const totalAboveSeconds = enriched.reduce((sum, s) => sum + s.duration, 0);
-
-    // Friendly labels
-    const strengthLabel = (peak) => {
-      if (peak == null) return '—';
-      if (peak >= 35) return 'Strong';
-      if (peak >= 28) return 'Moderate';
-      return 'Mild';
-    };
-
-    return {
-      threshold: THRESH,
-      events: enriched.length,
-      totalAboveSeconds,
-      strongest: strongest
-        ? {
-            durationSec: strongest.duration,
-            peakDeg: strongest.peak,
-            strength: strengthLabel(strongest.peak),
-          }
-        : null,
-    };
-  }, [reports.headPitch]);
-
-  // ---------------- Existing logic kept intact ----------------
   if (showNotifications) {
     return (
-      <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center' }}>
+      <View style={s.center}>
         <Text>Notifications Panel</Text>
         <TouchableOpacity onPress={() => setShowNotifications(false)}>
           <Text style={{ marginTop: 20, color: '#1E88E5' }}>Go Back</Text>
@@ -260,446 +585,232 @@ export default function Dashboard({ onNavigate }) {
 
   if (showWarningDetails) {
     return (
-      <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center' }}>
+      <View style={s.center}>
         <Text>Warning Details</Text>
-        <TouchableOpacity onPress={() => setShowWarningDetails(false)}>
+        <TouchableOpacity onPress={() => {
+  if (latestWarning?.id) {
+    onNavigate?.('history', { openWarningId: latestWarning.id });
+    return;
+  }
+  onNavigate?.('history');
+}}
+>
           <Text style={{ marginTop: 20, color: '#1E88E5' }}>Go Back</Text>
         </TouchableOpacity>
       </View>
     );
   }
 
-  // ===========================
-  // REPLACED: Monitoring Report placeholder
-  // ===========================
-  if (selectedMonitoring) {
-    return (
-      <View style={{ flex: 1, backgroundColor: '#E5E7EB' }}>
-        {/* Top bar like screenshots */}
-        <View
-          style={{
-            height: 90,
-            paddingTop: 44,
-            paddingHorizontal: 16,
-            backgroundColor: '#1E88E5',
-            flexDirection: 'row',
-            alignItems: 'center',
-            justifyContent: 'space-between',
-          }}
-        >
-          <TouchableOpacity onPress={() => setSelectedMonitoring(null)}>
-            <Ionicons name="chevron-back" size={26} color="white" />
-          </TouchableOpacity>
+async function setMyMode(mode) {
+  const { data: userRes } = await supabase.auth.getUser();
+  const me = userRes?.user;
+  if (!me?.id) return;
 
-          <Text style={{ color: 'white', fontWeight: '800', letterSpacing: 1 }}>
-            REPORTS
-          </Text>
+  // keep last_lat/lng as-is if mode changes
+  await supabase.from('driver_status').upsert(
+    {
+      user_id: me.id,
+      mode, // 'driver' or 'contact'
+    },
+    { onConflict: 'user_id' }
+  );
+}
 
-          <View style={{ width: 26 }} />
-        </View>
-
-        <ScrollView contentContainerStyle={{ padding: 16, paddingBottom: 24 }}>
-          {/* EYE-LID */}
-          {selectedMonitoring === 'eye' && (
-            <>
-              <ReportLineCard
-                title="PERCLOS"
-                subtitle="per day"
-                date={reports.meta.date1}
-                data={reports.perclos}
-                yLabel="PERCLOS"
-                threshold={0.30}
-                thresholdLabel="Threshold"
-              />
-              <ReportLineCard
-                title="PERCLOS"
-                subtitle="per day"
-                date={reports.meta.date2}
-                data={reports.perclos.map((v) => Math.max(0.02, v - 0.03))}
-                yLabel="PERCLOS"
-                threshold={0.30}
-                thresholdLabel="Threshold"
-              />
-            </>
-          )}
-
-          {/* HAND ON WHEEL */}
-          {selectedMonitoring === 'steering' && (
-            <>
-              <ReportPieCard
-                title="HAND ON WHEEL"
-                subtitle="per day"
-                date={reports.meta.date1}
-                onPercent={reports.handOnWheel.on}
-                offPercent={reports.handOnWheel.off}
-              />
-              <ReportPieCard
-                title="HAND ON WHEEL"
-                subtitle="per day"
-                date={reports.meta.date2}
-                onPercent={reports.handOnWheel.on}
-                offPercent={reports.handOnWheel.off}
-              />
-            </>
-          )}
-
-          {/* YAWNING */}
-          {selectedMonitoring === 'yawn' && (
-            <>
-              <ReportLineCard
-                title="MAR"
-                subtitle="per day"
-                date={reports.meta.date1}
-                data={reports.mar}
-                yLabel="MAR"
-                threshold={0.30}
-                thresholdLabel="Detection Threshold"
-                xLabel="Time (Seconds)"
-              />
-              <ReportLineCard
-                title="MAR"
-                subtitle="per day"
-                date={reports.meta.date2}
-                data={reports.mar.map((v, i) => Math.max(0.05, Math.min(0.78, v - (i > 80 ? 0.03 : 0))))}
-                yLabel="MAR"
-                threshold={0.30}
-                thresholdLabel="Detection Threshold"
-                xLabel="Time (Seconds)"
-              />
-            </>
-          )}
-
-          {/* HEAD NODDING */}
-          {selectedMonitoring === 'nod' && (
-            <>
-              <ReportLineCard
-                title="NODDING ANALYSIS"
-                subtitle="per day"
-                date={reports.meta.date1}
-                data={reports.headPitch}
-                yLabel="Head Pitch (Degrees)"
-                threshold={headNodAnalysis.threshold}
-                thresholdLabel="Drowsy threshold"
-                xLabel="Time (Seconds)"
-                yMin={0}
-                yMax={60}
-              />
-
-              <View
-                style={{
-                  backgroundColor: 'white',
-                  borderRadius: 14,
-                  padding: 14,
-                  marginTop: 12,
-                  shadowColor: '#000',
-                  shadowOpacity: 0.08,
-                  shadowRadius: 10,
-                }}
-              >
-                <Text style={{ fontWeight: '800', color: '#111827' }}>Head Nod Summary (demo)</Text>
-                <Text style={{ color: '#6B7280', marginTop: 6, fontSize: 12 }}>
-                  This is a frontend-only analysis derived from the displayed line graph.
-                </Text>
-
-                <View style={{ marginTop: 12 }}>
-                  <RowStat label="Nod events detected" value={`${headNodAnalysis.events}`} />
-                  <RowStat
-                    label={`Time above ${headNodAnalysis.threshold}°`}
-                    value={`${headNodAnalysis.totalAboveSeconds.toFixed(1)}s`}
-                  />
-                  <RowStat
-                    label="Strongest nod duration"
-                    value={
-                      headNodAnalysis.strongest
-                        ? `${headNodAnalysis.strongest.durationSec.toFixed(1)}s`
-                        : '—'
-                    }
-                  />
-                  <RowStat
-                    label="Strongest nod peak angle"
-                    value={
-                      headNodAnalysis.strongest
-                        ? `${headNodAnalysis.strongest.peakDeg.toFixed(0)}°`
-                        : '—'
-                    }
-                  />
-                  <RowStat
-                    label="Strength label"
-                    value={headNodAnalysis.strongest ? headNodAnalysis.strongest.strength : '—'}
-                  />
-                </View>
-
-                <View
-                  style={{
-                    marginTop: 12,
-                    padding: 12,
-                    borderRadius: 12,
-                    backgroundColor: '#F3F4F6',
-                  }}
-                >
-                  <Text style={{ fontWeight: '700', color: '#111827' }}>Interpretation (demo)</Text>
-                  <Text style={{ color: '#374151', marginTop: 6, fontSize: 12, lineHeight: 18 }}>
-                    A longer duration above the threshold suggests a more sustained head drop. A higher peak angle suggests
-                    a stronger nod. This is a demo visualization, not a medical diagnosis.
-                  </Text>
-                </View>
-              </View>
-
-              <ReportLineCard
-                title="NODDING ANALYSIS"
-                subtitle="per day"
-                date={reports.meta.date2}
-                data={reports.headPitch.map((v, i) => Math.max(0, Math.min(60, v - (i > 110 ? 2 : 0))))}
-                yLabel="Head Pitch (Degrees)"
-                threshold={headNodAnalysis.threshold}
-                thresholdLabel="Drowsy threshold"
-                xLabel="Time (Seconds)"
-                yMin={0}
-                yMax={60}
-              />
-            </>
-          )}
-        </ScrollView>
-      </View>
-    );
+async function startLocationStreaming(onError) {
+  const { status } = await Location.requestForegroundPermissionsAsync();
+  if (status !== 'granted') {
+    onError?.('Location permission denied');
+    return null;
   }
 
-  // ===========================
-  // Main Dashboard (unchanged)
-  // ===========================
-  return (
-    <View style={{ flex: 1, backgroundColor: '#1E88E5' }}>
-      <TouchableOpacity
-        onPress={() => setShowNotifications(true)}
-        style={{
-          position: 'absolute',
-          top: 16,
-          right: 16,
-          zIndex: 10,
-        }}
-      >
-        <Feather name="bell" size={26} color="white" />
-      </TouchableOpacity>
+  // mark driver mode ON
+  await setMyMode('driver');
 
-      <View style={{ alignItems: 'center', marginTop: 60, zIndex: 5 }}>
-        <View
-          style={{
-            width: 100,
-            height: 100,
-            borderRadius: 65,
-            backgroundColor: 'white',
-            alignItems: 'center',
-            justifyContent: 'center',
-          }}
-        >
-          <Image
-            source={driverImage}
-            style={{
-              width: 110,
-              height: 110,
-              borderRadius: 55,
-              borderWidth: 6,
-              borderColor: currentAlert.color,
-            }}
-          />
+  // live updates while app open
+  const sub = await Location.watchPositionAsync(
+    {
+      accuracy: Location.Accuracy.High,
+      timeInterval: 3000,       // every 3s
+      distanceInterval: 5,      // or every 5 meters
+    },
+    async (loc) => {
+      try {
+        const { data: userRes } = await supabase.auth.getUser();
+        const me = userRes?.user;
+        if (!me?.id) return;
+
+        const lat = loc.coords.latitude;
+        const lng = loc.coords.longitude;
+
+        await supabase.from('driver_status').upsert(
+          {
+            user_id: me.id,
+            mode: 'driver',
+            last_lat: lat,
+            last_lng: lng,
+            last_location_at: new Date().toISOString(),
+          },
+          { onConflict: 'user_id' }
+        );
+      } catch (e) {
+        console.log('[driver_status] update error', e);
+      }
+    }
+  );
+
+  return sub; // you must stop it later
+}
+
+async function stopLocationStreaming(subscription) {
+  try {
+    subscription?.remove?.();
+  } catch {}
+
+  // mark driver mode OFF (but keep last location saved)
+  await setMyMode('contact');
+}
+  return (
+    <View style={s.screen}>
+          <ModeSwitchOverlay
+      visible={modeOverlayVisible}
+      title="DRIVER MODE"
+      subtitle="Switching to Driver dashboard…"
+      stylesObj={s}
+    />
+
+      {/* ✅ Header (match screenshot) */}
+      <View style={s.header}>
+        <View style={s.headerLeftCircle}>
+          <Ionicons name="car-sport" size={18} color="#1E88E5" />
         </View>
+
+        <Text style={s.headerTitle}>D.R.I.V.E.</Text>
+
+        <TouchableOpacity onPress={() => setShowNotifications(true)} style={s.headerBell}>
+          <Feather name="bell" size={22} color="#fff" />
+        </TouchableOpacity>
       </View>
 
-      <View
-        style={{
-          flex: 1,
-          backgroundColor: 'white',
-          marginTop: -40,
-          borderTopLeftRadius: 28,
-          borderTopRightRadius: 28,
-          padding: 20,
-        }}
-      >
-        <View
-          style={{
-            flexDirection: 'row',
-            alignItems: 'center',
-            backgroundColor: '#F3F4F6',
-            padding: 14,
-            borderRadius: 18,
-            marginTop: 30,
-            marginBottom: 20,
-          }}
-        >
-          <Text style={{ fontWeight: '600', marginRight: 8 }}>CURRENT STATUS:</Text>
-          <Text style={{ color: currentAlert.color, fontWeight: '700', flex: 1 }}>
-            {currentAlert.status}
-          </Text>
-          <Ionicons name="alert-circle" size={20} color={currentAlert.color} />
+      {/* Content */}
+      <View style={s.content}>
+        {/* ✅ Hello row */}
+        <View style={s.helloRow}>
+          <View style={s.helloAvatarWrap}>
+            <Image
+              source={myAvatar ? { uri: myAvatar } : driverImage}
+              style={s.helloAvatar}
+            />
+          </View>
+
+          <View style={{ marginLeft: 12 }}>
+            <Text style={s.helloSmall}>Hello,</Text>
+            <Text style={s.helloName}>{myFullName}</Text>
+          </View>
         </View>
 
         {/* Recent Activity */}
-        <Text style={{ fontWeight: '600', marginBottom: 10 }}>Recent Activity</Text>
+        <Text style={s.sectionTitle}>Recent Activity</Text>
 
         <TouchableOpacity
-          onPress={() => setShowWarningDetails(true)}
-          style={{
-            backgroundColor: '#E5E5E5',
-            borderRadius: 20,
-            padding: 20,
-            alignItems: 'center',
-            marginBottom: 24,
-          }}
+          onPress={() => {
+  // ✅ if DB latest warning exists, open it inside History
+  if (latestWarning?.id) {
+    onNavigate?.('history', { openWarningId: latestWarning.id });
+    return;
+  }
+
+  // fallback if none
+  onNavigate?.('history');
+}}
+
+          activeOpacity={0.85}
+          style={s.activityCard}
         >
-          <Ionicons name="warning" size={50} color="#EF4444" />
-          <Text style={{ color: '#EF4444', fontWeight: '700', marginTop: 10 }}>
-            {getLevelText(currentAlert.level)}
-          </Text>
-          <Text style={{ fontSize: 12, color: '#555', marginTop: 4 }}>
-            {currentAlert.date} {currentAlert.timestamp}
-          </Text>
+                  <View style={s.activityThumb}>
+            {loadingLatestWarning ? (
+              <ActivityIndicator />
+            ) : currentAlert.snapshot_url ? (
+              <Image source={{ uri: currentAlert.snapshot_url }} style={{ width: '100%', height: '100%' }} />
+            ) : (
+              <Ionicons name="car" size={30} color="#9CA3AF" />
+            )}
+          </View>
+
+
+          <View style={{ flex: 1 }}>
+            <Text style={[s.activityLevel, { color: currentAlert.color }]}>
+  {getLevelText(currentAlert.level)}
+</Text>
+
+         <Text style={[s.activityStatus, { color: currentAlert.color }]}>
+  {currentAlert.status}
+</Text>
+
+            <Text style={s.activityTime}>
+              {currentAlert.date} {currentAlert.timestamp}
+            </Text>
+          </View>
+
+        <Ionicons name="warning" size={26} color={currentAlert.color} />
+
         </TouchableOpacity>
 
-        {/* Monitoring Activity */}
-        <Text style={{ fontWeight: '600', marginBottom: 12 }}>Monitoring Activity</Text>
-
-        <ScrollView horizontal showsHorizontalScrollIndicator={false}>
-          <MonitoringButton
-            icon={<Ionicons name="eye" size={30} color="#38BDF8" />}
-            label="EYE-LID MONITORING"
-            onPress={() => setSelectedMonitoring('eye')}
-          />
-          <MonitoringButton
-            icon={<MaterialCommunityIcons name="steering" size={30} color="#38BDF8" />}
-            label="HAND ON STEERING WHEEL"
-            onPress={() => setSelectedMonitoring('steering')}
-          />
-          <MonitoringButton
-            icon={<Ionicons name="car-sport" size={30} color="#38BDF8" />}
-            label="YAWNING"
-            onPress={() => setSelectedMonitoring('yawn')}
-          />
-          {/* NEW BUTTON */}
-          <MonitoringButton
-            icon={<MaterialCommunityIcons name="head" size={30} color="#38BDF8" />}
-            label="HEAD NODDING"
-            onPress={() => setSelectedMonitoring('nod')}
-          />
-        </ScrollView>
-
         {/* Device Status */}
-        <Text style={{ fontWeight: '600', marginTop: 18, marginBottom: 12 }}>
-          Device Status
-        </Text>
+        <Text style={s.sectionTitle}>Device Status</Text>
 
-        <View style={{ flexDirection: 'row', gap: 12 }}>
-          {/* Device card */}
+        <View style={s.deviceRow}>
           <TouchableOpacity
             onPress={() => {
-              if (connectedDevice) {
-                setDeviceModalVisible(true);
-              } else {
-                openDeviceModal();
-              }
+              if (!requireBluetoothOrWarn()) return;
+              if (connectedDevice) setDeviceModalVisible(true);
+              else openDeviceModal();
             }}
-            style={{
-              flex: 1,
-              backgroundColor: '#1E3A8A',
-              borderRadius: 18,
-              padding: 14,
-              minHeight: 90,
-              justifyContent: 'space-between',
-            }}
+            activeOpacity={0.85}
+            style={s.deviceCard}
           >
-            <View style={{ flexDirection: 'row', justifyContent: 'space-between' }}>
-              <MaterialCommunityIcons name="bluetooth" size={18} color="white" />
-              <Text style={{ color: 'white', fontSize: 11, opacity: 0.9 }}>
-                {connectedDevice ? 'Connected' : 'Not connected'}
-              </Text>
+            <View style={s.deviceTop}>
+              <MaterialCommunityIcons name="bluetooth" size={18} color="#fff" />
+              <Text style={s.deviceTopRight}>{connectedDevice ? 'Connected' : 'Not connected'}</Text>
             </View>
 
             <View>
-              <Text style={{ color: 'white', fontWeight: '700', fontSize: 14 }}>
-                {connectedDevice ? (connectedDevice.name || 'Device') : 'Find device'}
-              </Text>
-
-              <Text style={{ color: 'white', fontSize: 12, opacity: 0.85, marginTop: 2 }}>
-                {connectedDevice ? 'Device On' : 'Scan available device'}
-              </Text>
+              <Text style={s.deviceTitle}>D.R.I.V.E</Text>
+              <Text style={s.deviceSub}>{connectedDevice ? 'Device On' : 'Find device'}</Text>
             </View>
 
-            <Text style={{ color: 'white', fontSize: 10, opacity: 0.75, textAlign: 'right' }}>
-              {connectedDevice ? '3m' : ''}
-            </Text>
+            <Text style={s.deviceTime}>{connectedDevice ? '3m' : ''}</Text>
           </TouchableOpacity>
 
-          {/* Battery card */}
-          <View
-            style={{
-              flex: 1,
-              backgroundColor: '#1E3A8A',
-              borderRadius: 18,
-              padding: 14,
-              minHeight: 90,
-              justifyContent: 'space-between',
-            }}
-          >
-            <View style={{ flexDirection: 'row', justifyContent: 'space-between' }}>
-              <Ionicons name="battery-half" size={18} color="white" />
-              <Text style={{ color: 'white', fontSize: 11, opacity: 0.9 }}>
-                {batteryPercent == null ? '' : `${batteryPercent}%`}
-              </Text>
+          <View style={s.deviceCard}>
+            <View style={s.deviceTop}>
+              <Ionicons name="battery-half" size={18} color="#fff" />
+              <Text style={s.deviceTopRight}>{batteryPercent == null ? '' : `${batteryPercent}%`}</Text>
             </View>
 
             <View>
-              <Text style={{ color: 'white', fontWeight: '700', fontSize: 14 }}>Battery</Text>
-
-              <Text style={{ color: 'white', fontSize: 12, opacity: 0.85, marginTop: 2 }}>
-                {batteryPercent == null ? '—' : 'Charged'}
-              </Text>
+              <Text style={s.deviceTitle}>Battery</Text>
+              <Text style={s.deviceSub}>{batteryPercent == null ? '—' : 'Charged'}</Text>
             </View>
 
-            <Text style={{ color: 'white', fontSize: 10, opacity: 0.75, textAlign: 'right' }}>
-              {batteryPercent == null ? '' : '3m'}
-            </Text>
+            <Text style={s.deviceTime}>{batteryPercent == null ? '' : '3m'}</Text>
           </View>
         </View>
       </View>
 
       {/* Bottom nav */}
-      <View
-        style={{
-          flexDirection: 'row',
-          justifyContent: 'space-around',
-          paddingVertical: 12,
-          backgroundColor: 'white',
-        }}
-      >
+      <View style={s.bottomNav}>
         <NavItem icon="home" label="Home" onPress={() => onNavigate('dashboard')} active />
         <NavItem icon="clock" label="History" onPress={() => onNavigate('history')} />
-        <NavItem icon="map-pin" label="Location" onPress={() => onNavigate('location')} />
         <NavItem icon="users" label="Contacts" onPress={() => onNavigate('contacts')} />
         <NavItem icon="menu" label="Menu" onPress={() => onNavigate('menu')} />
       </View>
 
-      {/* Device modal */}
+      {/* Device modal (UNCHANGED logic, only kept as-is) */}
       <Modal visible={deviceModalVisible} transparent animationType="fade">
-        <View
-          style={{
-            flex: 1,
-            backgroundColor: 'rgba(0,0,0,0.45)',
-            justifyContent: 'center',
-            alignItems: 'center',
-            paddingHorizontal: 18,
-          }}
-        >
-          <View
-            style={{
-              width: '100%',
-              backgroundColor: 'white',
-              borderRadius: 16,
-              padding: 16,
-            }}
-          >
+        <View style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.45)', justifyContent: 'center', alignItems: 'center', paddingHorizontal: 18 }}>
+          <View style={{ width: '100%', backgroundColor: 'white', borderRadius: 16, padding: 16 }}>
             <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
-              <Text style={{ fontSize: 16, fontWeight: '700', color: '#111827' }}>
-                Bluetooth Devices
-              </Text>
+              <Text style={{ fontSize: 16, fontWeight: '700', color: '#111827' }}>Bluetooth Devices</Text>
               <Pressable onPress={closeDeviceModal}>
                 <Ionicons name="close" size={22} color="#111827" />
               </Pressable>
@@ -709,25 +820,18 @@ export default function Dashboard({ onNavigate }) {
               Demo connection flow (frontend only)
             </Text>
 
+            {/* ✅ Toggle UI REMOVED (flow preserved)
+                We keep bluetoothEnabled state + requireBluetoothOrWarn() logic.
+            */}
+
             {connectedDevice && scanState === 'connected' ? (
-              <View
-                style={{
-                  marginTop: 14,
-                  padding: 14,
-                  borderRadius: 14,
-                  backgroundColor: '#F3F4F6',
-                }}
-              >
+              <View style={{ marginTop: 14, padding: 14, borderRadius: 14, backgroundColor: '#F3F4F6' }}>
                 <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
                   <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
                     <MaterialCommunityIcons name="bluetooth-connect" size={22} color="#1E3A8A" />
                     <View>
-                      <Text style={{ fontWeight: '800', color: '#111827' }}>
-                        {connectedDevice.name}
-                      </Text>
-                      <Text style={{ color: '#6B7280', fontSize: 12 }}>
-                        Connected • RSSI {connectedDevice.rssi}
-                      </Text>
+                      <Text style={{ fontWeight: '800', color: '#111827' }}>{connectedDevice.name}</Text>
+                      <Text style={{ color: '#6B7280', fontSize: 12 }}>Connected • RSSI {connectedDevice.rssi}</Text>
                     </View>
                   </View>
 
@@ -741,13 +845,7 @@ export default function Dashboard({ onNavigate }) {
 
                 <Pressable
                   onPress={disconnectDevice}
-                  style={{
-                    marginTop: 12,
-                    paddingVertical: 10,
-                    borderRadius: 12,
-                    backgroundColor: '#EF4444',
-                    alignItems: 'center',
-                  }}
+                  style={{ marginTop: 12, paddingVertical: 10, borderRadius: 12, backgroundColor: '#EF4444', alignItems: 'center' }}
                 >
                   <Text style={{ color: 'white', fontWeight: '700' }}>Disconnect</Text>
                 </Pressable>
@@ -757,11 +855,12 @@ export default function Dashboard({ onNavigate }) {
                 <View style={{ marginTop: 14, flexDirection: 'row', gap: 10 }}>
                   <Pressable
                     onPress={startScan}
+                    disabled={!bluetoothEnabled}
                     style={{
                       flex: 1,
                       paddingVertical: 12,
                       borderRadius: 12,
-                      backgroundColor: '#1E3A8A',
+                      backgroundColor: bluetoothEnabled ? '#1E3A8A' : '#9CA3AF',
                       alignItems: 'center',
                       flexDirection: 'row',
                       justifyContent: 'center',
@@ -786,21 +885,20 @@ export default function Dashboard({ onNavigate }) {
 
                   <Pressable
                     onPress={closeDeviceModal}
-                    style={{
-                      paddingVertical: 12,
-                      paddingHorizontal: 14,
-                      borderRadius: 12,
-                      backgroundColor: '#E5E7EB',
-                      alignItems: 'center',
-                      justifyContent: 'center',
-                    }}
+                    style={{ paddingVertical: 12, paddingHorizontal: 14, borderRadius: 12, backgroundColor: '#E5E7EB', alignItems: 'center', justifyContent: 'center' }}
                   >
                     <Text style={{ color: '#111827', fontWeight: '700' }}>Close</Text>
                   </Pressable>
                 </View>
 
                 <View style={{ marginTop: 14 }}>
-                  {scanState === 'idle' && (
+                  {!bluetoothEnabled && (
+                    <Text style={{ color: '#DC2626', fontSize: 12 }}>
+                      Bluetooth is OFF. Turn it on to scan/connect.
+                    </Text>
+                  )}
+
+                  {bluetoothEnabled && scanState === 'idle' && (
                     <Text style={{ color: '#6B7280', fontSize: 12 }}>
                       Tap “Scan available devices” to start.
                     </Text>
@@ -829,11 +927,7 @@ export default function Dashboard({ onNavigate }) {
                       >
                         <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
                           <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
-                            <MaterialCommunityIcons
-                              name={selected ? 'bluetooth-connect' : 'bluetooth'}
-                              size={20}
-                              color="#1E3A8A"
-                            />
+                            <MaterialCommunityIcons name={selected ? 'bluetooth-connect' : 'bluetooth'} size={20} color="#1E3A8A" />
                             <View>
                               <Text style={{ fontWeight: '800', color: '#111827' }}>{d.name}</Text>
                               <Text style={{ color: '#6B7280', fontSize: 12 }}>RSSI {d.rssi}</Text>
@@ -849,13 +943,13 @@ export default function Dashboard({ onNavigate }) {
 
                 <Pressable
                   onPress={pairSelectedDevice}
-                  disabled={!selectedDevice || scanState === 'scanning' || scanState === 'pairing'}
+                  disabled={!bluetoothEnabled || !selectedDevice || scanState === 'scanning' || scanState === 'pairing'}
                   style={{
                     marginTop: 14,
                     paddingVertical: 12,
                     borderRadius: 12,
                     backgroundColor:
-                      !selectedDevice || scanState === 'scanning' || scanState === 'pairing'
+                      !bluetoothEnabled || !selectedDevice || scanState === 'scanning' || scanState === 'pairing'
                         ? '#9CA3AF'
                         : '#1E3A8A',
                     alignItems: 'center',
@@ -887,31 +981,37 @@ export default function Dashboard({ onNavigate }) {
           </View>
         </View>
       </Modal>
-    </View>
-  );
-}
 
-/* Monitoring cards */
-function MonitoringButton({ icon, label, onPress }) {
-  return (
-    <TouchableOpacity
-      onPress={onPress}
-      style={{
-        width: 150,
-        height: 130,
-        backgroundColor: '#1E3A8A',
-        borderRadius: 20,
-        marginRight: 14,
-        alignItems: 'center',
-        justifyContent: 'center',
-        padding: 10,
-      }}
-    >
-      {icon}
-      <Text style={{ color: 'white', fontSize: 12, textAlign: 'center', marginTop: 8 }}>
-        {label}
-      </Text>
-    </TouchableOpacity>
+      {/* Reconnect Prompt Modal (UNCHANGED) */}
+      <Modal transparent visible={showReconnectPrompt} animationType="fade">
+        <View style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.4)', justifyContent: 'center', alignItems: 'center', paddingHorizontal: 20 }}>
+          <View style={{ width: '100%', backgroundColor: 'white', borderRadius: 16, padding: 18 }}>
+            <Text style={{ fontSize: 16, fontWeight: '800', color: '#111827', marginBottom: 8 }}>
+              Reconnect?
+            </Text>
+            <Text style={{ fontSize: 13, color: '#6B7280', marginBottom: 16, lineHeight: 18 }}>
+              Device disconnected. Do you want to reconnect to D.R.I.V.E?
+            </Text>
+
+            <View style={{ flexDirection: 'row', justifyContent: 'flex-end' }}>
+              <Pressable
+                onPress={handleReconnectNo}
+                style={{ paddingVertical: 10, paddingHorizontal: 14, borderRadius: 10, backgroundColor: '#E5E7EB', marginRight: 10 }}
+              >
+                <Text style={{ color: '#111827', fontWeight: '700' }}>No</Text>
+              </Pressable>
+
+              <Pressable
+                onPress={handleReconnectYes}
+                style={{ paddingVertical: 10, paddingHorizontal: 14, borderRadius: 10, backgroundColor: '#1E3A8A' }}
+              >
+                <Text style={{ color: 'white', fontWeight: '800' }}>Yes</Text>
+              </Pressable>
+            </View>
+          </View>
+        </View>
+      </Modal>
+    </View>
   );
 }
 
@@ -921,229 +1021,171 @@ function NavItem({ icon, label, onPress, active }) {
     <TouchableOpacity onPress={onPress} disabled={active} style={{ alignItems: 'center' }}>
       <View
         style={{
-          width: 40,
-          height: 40,
-          borderRadius: 20,
+          width: 44,
+          height: 44,
+          borderRadius: 22,
           backgroundColor: active ? '#3B82F6' : 'white',
           alignItems: 'center',
           justifyContent: 'center',
         }}
       >
-        <Feather name={icon} size={18} color={active ? '#fff' : '#3B82F6'} />
+        <Feather name={icon} size={20} color={active ? '#fff' : '#3B82F6'} />
       </View>
-      <Text style={{ fontSize: 12, color: '#3B82F6', marginTop: 4 }}>{label}</Text>
+      <Text style={{ fontSize: 12, color: '#3B82F6', marginTop: 6, fontWeight: active ? '800' : '600' }}>
+        {label}
+      </Text>
     </TouchableOpacity>
   );
 }
 
-/* ===========================
-   Reports UI components
-   =========================== */
+/* Styles */
+const s = {
+  screen: { flex: 1, backgroundColor: '#fff' },
+  // ✅ Mode overlay (2–3s indicator)
+  modeOverlayBackdrop: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.35)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingHorizontal: 22,
+  },
+  modeOverlayCard: {
+    width: '100%',
+    backgroundColor: 'white',
+    borderRadius: 18,
+    paddingVertical: 18,
+    paddingHorizontal: 16,
+    alignItems: 'center',
+    gap: 10,
+  },
+  modeOverlayTitle: {
+    marginTop: 6,
+    fontSize: 14,
+    fontWeight: '900',
+    color: '#111827',
+    textAlign: 'center',
+  },
+  modeOverlaySubtitle: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: '#6B7280',
+    textAlign: 'center',
+  },
+  modeBarTrack: {
+    width: '100%',
+    height: 8,
+    backgroundColor: '#E5E7EB',
+    borderRadius: 999,
+    overflow: 'hidden',
+    marginTop: 6,
+  },
+  modeBarFill: {
+    height: 8,
+    backgroundColor: '#2563EB',
+    borderRadius: 999,
+  },
 
-function CardShell({ children }) {
-  return (
-    <View
-      style={{
-        backgroundColor: 'white',
-        borderRadius: 14,
-        padding: 14,
-        marginBottom: 14,
-        shadowColor: '#000',
-        shadowOpacity: 0.10,
-        shadowRadius: 10,
-      }}
-    >
-      {children}
-    </View>
-  );
-}
+  header: {
+    height: 90,
+    backgroundColor: '#1E88E5',
+    paddingTop: 34,
+    paddingHorizontal: 16,
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  headerLeftCircle: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: '#fff',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  headerTitle: {
+    flex: 1,
+    textAlign: 'center',
+    color: '#fff',
+    fontSize: 18,
+    fontWeight: '900',
+    letterSpacing: 1,
+  },
+  headerBell: { width: 36, alignItems: 'flex-end' },
 
-function HeaderRow({ title, subtitle, date }) {
-  return (
-    <View style={{ flexDirection: 'row', justifyContent: 'space-between' }}>
-      <View>
-        <Text style={{ fontWeight: '800', color: '#111827', fontSize: 12 }}>{title}</Text>
-        <Text style={{ color: '#6B7280', fontSize: 11 }}>{subtitle}</Text>
-      </View>
-      <View style={{ alignItems: 'flex-end' }}>
-        <Text style={{ fontWeight: '800', color: '#111827', fontSize: 12 }}>DATE</Text>
-        <Text style={{ color: '#6B7280', fontSize: 11 }}>{date}</Text>
-      </View>
-    </View>
-  );
-}
+  content: { flex: 1, paddingHorizontal: 18, paddingTop: 14 },
 
-function ReportLineCard({
-  title,
-  subtitle,
-  date,
-  data,
-  yLabel,
-  xLabel,
-  threshold,
-  thresholdLabel,
-  yMin,
-  yMax,
-}) {
-  return (
-    <CardShell>
-      <HeaderRow title={title} subtitle={subtitle} date={date} />
-      <View style={{ marginTop: 10 }}>
-        <MiniLineChart
-          data={data}
-          height={140}
-          threshold={threshold}
-          yMin={yMin}
-          yMax={yMax}
-        />
-        <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginTop: 6 }}>
-          <Text style={{ fontSize: 10, color: '#6B7280' }}>{yLabel}</Text>
-          <Text style={{ fontSize: 10, color: '#6B7280' }}>{xLabel || ''}</Text>
-        </View>
+  helloRow: { flexDirection: 'row', alignItems: 'center', marginBottom: 14 },
+  helloAvatarWrap: {
+    width: 54,
+    height: 54,
+    borderRadius: 27,
+    backgroundColor: '#E5E7EB',
+    overflow: 'hidden',
+  },
+  helloAvatar: { width: 54, height: 54 },
+  helloSmall: { color: '#6B7280', fontSize: 12, fontWeight: '700' },
+  helloName: { color: '#111827', fontSize: 18, fontWeight: '900', marginTop: 2 },
 
-        {typeof threshold === 'number' && (
-          <Text style={{ fontSize: 10, color: '#6B7280', marginTop: 6 }}>
-            {thresholdLabel || 'Threshold'}: {threshold}
-          </Text>
-        )}
-      </View>
-    </CardShell>
-  );
-}
+  sectionTitle: {
+    fontSize: 16,
+    fontWeight: '900',
+    color: '#111827',
+    marginTop: 6,
+    marginBottom: 12,
+  },
 
-function ReportPieCard({ title, subtitle, date, onPercent, offPercent }) {
-  return (
-    <CardShell>
-      <HeaderRow title={title} subtitle={subtitle} date={date} />
-      <View style={{ marginTop: 12, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
-        <MiniPieChart onPercent={onPercent} offPercent={offPercent} size={120} />
-        <View style={{ flex: 1, marginLeft: 12 }}>
-          <LegendRow label="Hand on wheel" value={`${onPercent}%`} dot />
-          <LegendRow label="No grip" value={`${offPercent}%`} dot light />
-        </View>
-      </View>
-    </CardShell>
-  );
-}
+  activityCard: {
+    backgroundColor: '#fff',
+    borderRadius: 16,
+    padding: 14,
+    flexDirection: 'row',
+    alignItems: 'center',
+    borderWidth: 1,
+    borderColor: '#E5E7EB',
+    shadowColor: '#000',
+    shadowOpacity: 0.10,
+    shadowRadius: 10,
+    shadowOffset: { width: 0, height: 4 },
+    elevation: 3,
+    marginBottom: 18,
+  },
+  activityThumb: {
+    width: 98,
+    height: 70,
+    borderRadius: 14,
+    backgroundColor: '#F3F4F6',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginRight: 14,
+  },
+  activityLevel: { fontWeight: '900', fontSize: 13 },
 
-function LegendRow({ label, value, dot, light }) {
-  return (
-    <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 8 }}>
-      {dot && (
-        <View
-          style={{
-            width: 8,
-            height: 8,
-            borderRadius: 4,
-            marginRight: 8,
-            backgroundColor: light ? '#CBD5E1' : '#1E3A8A',
-          }}
-        />
-      )}
-      <Text style={{ color: '#111827', fontSize: 12, flex: 1 }}>{label}</Text>
-      <Text style={{ color: '#111827', fontWeight: '700', fontSize: 12 }}>{value}</Text>
-    </View>
-  );
-}
+  activityStatus: { fontWeight: '900', fontSize: 13, marginTop: 3 },
 
-function RowStat({ label, value }) {
-  return (
-    <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginBottom: 8 }}>
-      <Text style={{ color: '#6B7280', fontSize: 12 }}>{label}</Text>
-      <Text style={{ color: '#111827', fontWeight: '800', fontSize: 12 }}>{value}</Text>
-    </View>
-  );
-}
+  activityTime: { color: '#6B7280', fontSize: 12, marginTop: 6 },
 
-/* ===========================
-   Mini charts (SVG)
-   =========================== */
+  deviceRow: { flexDirection: 'row', gap: 14 },
+  deviceCard: {
+    flex: 1,
+    borderRadius: 16,
+    backgroundColor: '#1E88E5',
+    padding: 14,
+    minHeight: 110, // ✅ bigger like screenshot
+    justifyContent: 'space-between',
+  },
+  deviceTop: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
+  deviceTopRight: { color: '#fff', fontSize: 12, fontWeight: '900' },
+  deviceTitle: { color: '#fff', fontWeight: '900', fontSize: 15, marginTop: 6 },
+  deviceSub: { color: '#fff', fontSize: 12, opacity: 0.95, marginTop: 4, fontWeight: '700' },
+  deviceTime: { color: '#fff', fontSize: 11, opacity: 0.9, textAlign: 'right', fontWeight: '700' },
 
-function MiniLineChart({ data, height = 120, threshold, yMin, yMax }) {
-  const width = 320; // fixed works well in cards
-  const pad = 18;
+  bottomNav: {
+    flexDirection: 'row',
+    justifyContent: 'space-around',
+    paddingVertical: 12,
+    backgroundColor: '#fff',
+    borderTopWidth: 1,
+    borderColor: '#E5E7EB',
+  },
 
-  const minVal = typeof yMin === 'number' ? yMin : Math.min(...data);
-  const maxVal = typeof yMax === 'number' ? yMax : Math.max(...data);
-
-  const scaleX = (i) => pad + (i * (width - pad * 2)) / Math.max(1, data.length - 1);
-  const scaleY = (v) => {
-    const t = (v - minVal) / Math.max(0.0001, maxVal - minVal);
-    return height - pad - t * (height - pad * 2);
-  };
-
-  const d = data
-    .map((v, i) => `${i === 0 ? 'M' : 'L'} ${scaleX(i).toFixed(2)} ${scaleY(v).toFixed(2)}`)
-    .join(' ');
-
-  // threshold line
-  const threshY =
-    typeof threshold === 'number'
-      ? scaleY(Math.max(minVal, Math.min(maxVal, threshold)))
-      : null;
-
-  return (
-    <Svg width="100%" height={height} viewBox={`0 0 ${width} ${height}`}>
-      {/* axis-ish lines */}
-      <Line x1={pad} y1={pad} x2={pad} y2={height - pad} stroke="#111827" strokeWidth="1" />
-      <Line x1={pad} y1={height - pad} x2={width - pad} y2={height - pad} stroke="#111827" strokeWidth="1" />
-
-      {typeof threshY === 'number' && (
-        <Line
-          x1={pad}
-          y1={threshY}
-          x2={width - pad}
-          y2={threshY}
-          stroke="#EF4444"
-          strokeWidth="1.5"
-          strokeDasharray="6 6"
-        />
-      )}
-
-      {/* path */}
-      <Path d={d} fill="none" stroke="#1E3A8A" strokeWidth="2.5" />
-
-      {/* last point */}
-      <Circle
-        cx={scaleX(data.length - 1)}
-        cy={scaleY(data[data.length - 1])}
-        r="4.5"
-        fill="#1E3A8A"
-      />
-    </Svg>
-  );
-}
-
-function MiniPieChart({ onPercent, offPercent, size = 120 }) {
-  // Basic pie using two arcs
-  const cx = size / 2;
-  const cy = size / 2;
-  const r = size / 2 - 8;
-
-  const total = Math.max(1, onPercent + offPercent);
-  const onAngle = (onPercent / total) * Math.PI * 2;
-
-  const polar = (angle) => ({
-    x: cx + r * Math.cos(angle - Math.PI / 2),
-    y: cy + r * Math.sin(angle - Math.PI / 2),
-  });
-
-  const arcPath = (startAngle, endAngle) => {
-    const start = polar(startAngle);
-    const end = polar(endAngle);
-    const large = endAngle - startAngle > Math.PI ? 1 : 0;
-    return `M ${cx} ${cy} L ${start.x} ${start.y} A ${r} ${r} 0 ${large} 1 ${end.x} ${end.y} Z`;
-  };
-
-  const onPath = arcPath(0, onAngle);
-  const offPath = arcPath(onAngle, Math.PI * 2);
-
-  return (
-    <Svg width={size} height={size}>
-      <G>
-        <Path d={offPath} fill="#CBD5E1" />
-        <Path d={onPath} fill="#1E3A8A" />
-      </G>
-    </Svg>
-  );
-}
+  center: { flex: 1, justifyContent: 'center', alignItems: 'center' },
+};

@@ -1,118 +1,246 @@
-import React, { useState } from 'react';
-import { 
-  View, 
-  Text, 
-  TextInput, 
-  Pressable, 
-  StyleSheet, 
-  ScrollView, 
-  Image 
+import React, { useEffect, useRef, useState, useMemo } from 'react';
+import {
+  View,
+  Text,
+  TextInput,
+  Pressable,
+  StyleSheet,
+  ScrollView,
+  Image,
+  ActivityIndicator,
 } from 'react-native';
-import { AntDesign, Feather } from '@expo/vector-icons';
+import { Feather } from '@expo/vector-icons';
 
 export default function LoginScreen({ onLogin, onForgotPassword, onSignup }) {
-  const [phoneNumber, setPhoneNumber] = useState('');
+  const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+
+  // keep your errors object (non-breaking)
   const [errors, setErrors] = useState({});
   const [showPassword, setShowPassword] = useState(false);
 
+  // ✅ added: loading state for verify animation (kept)
+  const [loading, setLoading] = useState(false);
+
+  // ✅ show validations ONLY after focusing/tapping a field
+  const [touched, setTouched] = useState({ email: false, password: false });
+
+  // ✅ avoid setting state if screen unmounts while navigating
+  const isMountedRef = useRef(true);
+  useEffect(() => {
+    return () => {
+      isMountedRef.current = false;
+    };
+  }, []);
+
+  // ✅ minimum time to show loader (kept)
+  const MIN_LOADING_MS = 500;
+  const sleep = (ms) => new Promise((res) => setTimeout(res, ms));
+
+  // ==========================
+  // STRICT VALIDATORS
+  // ==========================
+  const getEmailError = (raw) => {
+    const v = String(raw ?? '').trim().toLowerCase();
+
+    if (!v) return 'Email is required';
+    // invalid if > 45
+    if (v.length > 45) return 'Email must not exceed 45 characters';
+
+    // must contain exactly one @
+    const atCount = (v.match(/@/g) || []).length;
+    if (atCount !== 1) return 'Please ensure to input proper email address';
+
+    const [local, domain] = v.split('@');
+
+    // local must exist
+    if (!local) return 'Please ensure to input proper email address';
+
+    // domain must exist
+    if (!domain) return 'Please ensure to input proper email address';
+
+    // no double dots after @ (e.g. gmail..com)
+    if (domain.includes('..')) return 'Please ensure to input proper email address';
+
+    // allowed providers ONLY
+    if (domain !== 'gmail.com' && domain !== 'yahoo.com') {
+      return 'Only @gmail.com or @yahoo.com is allowed';
+    }
+
+    // local part basic safety (dots allowed before @)
+    // (prevents weird symbols/spam patterns)
+    const localOk = /^[a-z0-9._%+-]+$/.test(local);
+    if (!localOk) return 'Please ensure to input proper email address';
+
+    // must not start or end with dot (optional but helps “real email”)
+    if (local.startsWith('.') || local.endsWith('.')) return 'Please ensure to input proper email address';
+
+    // no consecutive dots in local (optional but common “real” rule)
+    if (local.includes('..')) return 'Please ensure to input proper email address';
+
+    return null;
+  };
+
+  const getPasswordError = (raw) => {
+    const v = String(raw ?? '');
+
+    if (!v) return 'Password is required';
+    // must not exceed 30 chars
+    if (v.length > 30) return 'Password must not exceed 30 characters';
+    return null;
+  };
+
+  // realtime errors (ONLY show when field touched)
+  const realtimeEmailError = useMemo(() => getEmailError(email), [email]);
+  const realtimePasswordError = useMemo(() => getPasswordError(password), [password]);
 
   const validateForm = () => {
     const newErrors = {};
-    if (!phoneNumber.trim()) {
-      newErrors.phone = 'Phone number is required';
-    } else if (phoneNumber.length < 10) {
-      newErrors.phone = 'Please enter a valid phone number';
-    }
 
-    if (!password) {
-      newErrors.password = 'Password is required';
-    } else if (password.length < 6) {
-      newErrors.password = 'Password must be at least 6 characters';
-    }
+    const emailErr = getEmailError(email);
+    if (emailErr) newErrors.email = emailErr;
+
+    const passErr = getPasswordError(password);
+    if (passErr) newErrors.password = passErr;
 
     setErrors(newErrors);
     return Object.keys(newErrors).length === 0;
   };
 
   const handleSubmit = async () => {
+    if (loading) return; // ✅ prevent double tap
+
+    // show validations after attempting submit
+    setTouched({ email: true, password: true });
+
     if (!validateForm()) return;
 
-    // Keep UI logic here; App.js handles OTP send + navigation.
+    const start = Date.now();
+
     try {
-      await Promise.resolve(onLogin({ phoneNumber, password }));
+      setLoading(true);
+      await Promise.resolve(onLogin({ email, password }));
     } catch {
-      // App.js should surface errors via Alert, but don't crash this screen.
+      // App.js should handle Alerts; don't crash UI.
+    } finally {
+      const elapsed = Date.now() - start;
+      const remaining = Math.max(0, MIN_LOADING_MS - elapsed);
+      if (remaining) await sleep(remaining);
+
+      if (isMountedRef.current) setLoading(false);
+    }
+  };
+
+  // NOTE: Keeping handleGoogle function (non-breaking), but Google UI is removed.
+  const handleGoogle = async () => {
+    if (loading) return;
+
+    const start = Date.now();
+
+    try {
+      setLoading(true);
+      await Promise.resolve(onLogin('google'));
+    } catch {
+      // App.js should handle Alerts; don't crash UI.
+    } finally {
+      const elapsed = Date.now() - start;
+      const remaining = Math.max(0, MIN_LOADING_MS - elapsed);
+      if (remaining) await sleep(remaining);
+
+      if (isMountedRef.current) setLoading(false);
     }
   };
 
   return (
-    <ScrollView contentContainerStyle={styles.container}>
+    <ScrollView contentContainerStyle={styles.container} keyboardShouldPersistTaps="handled">
       <View style={styles.spacer} />
 
       <Text style={styles.title}>Log in to DRIVE</Text>
       <Text style={styles.description}>Welcome back! Please enter your details.</Text>
 
+      {/* EMAIL */}
       <View style={styles.field}>
-        <Text style={styles.label}>Phone Number</Text>
-        <View style={styles.inputWrapper}>
-          <Feather name="phone" size={18} style={styles.icon} />
+        <Text style={styles.label}>Email</Text>
+        <View style={[styles.inputWrapper, loading && styles.disabledField]}>
+          <Feather name="mail" size={18} style={styles.icon} />
           <TextInput
-            placeholder="+63"
-            keyboardType="phone-pad"
-            value={phoneNumber}
-            onChangeText={setPhoneNumber}
+            placeholder="you@gmail.com"
+            keyboardType="email-address"
+            autoCapitalize="none"
+            autoCorrect={false}
+            value={email}
+            onChangeText={(t) => {
+              // hard stop at 55 characters (prevents loopholes)
+              const capped = String(t ?? '').slice(0, 55);
+              setEmail(capped);
+
+              // clear stored submit errors while typing
+              if (errors.email) setErrors((p) => ({ ...p, email: undefined }));
+            }}
+            onFocus={() => setTouched((p) => ({ ...p, email: true }))}
             style={styles.input}
+            editable={!loading}
+            maxLength={55}
           />
         </View>
-        {errors.phone && <Text style={styles.error}>{errors.phone}</Text>}
+
+        {/* show ONLY after tapping/focus */}
+        {touched.email && !!realtimeEmailError && <Text style={styles.error}>{realtimeEmailError}</Text>}
       </View>
 
+      {/* PASSWORD */}
       <View style={styles.field}>
         <Text style={styles.label}>Password</Text>
-        <View style={styles.inputWrapper}>
+        <View style={[styles.inputWrapper, loading && styles.disabledField]}>
           <Feather name="lock" size={18} style={styles.icon} />
           <TextInput
             placeholder="Password"
             secureTextEntry={!showPassword}
             value={password}
-            onChangeText={setPassword}
+            onChangeText={(t) => {
+              // hard stop at 30 chars
+              const capped = String(t ?? '').slice(0, 30);
+              setPassword(capped);
+
+              if (errors.password) setErrors((p) => ({ ...p, password: undefined }));
+            }}
+            onFocus={() => setTouched((p) => ({ ...p, password: true }))}
             style={styles.input}
+            editable={!loading}
+            maxLength={30}
           />
-          <Pressable onPress={() => setShowPassword(!showPassword)}>
-            <Feather
-              name={showPassword ? 'eye-off' : 'eye'}
-              size={18}
-              color="#6B7280"
-            />
+          <Pressable onPress={() => setShowPassword(!showPassword)} disabled={loading}>
+            <Feather name={showPassword ? 'eye-off' : 'eye'} size={18} color="#6B7280" />
           </Pressable>
         </View>
-        {errors.password && <Text style={styles.error}>{errors.password}</Text>}
+
+        {touched.password && !!realtimePasswordError && <Text style={styles.error}>{realtimePasswordError}</Text>}
       </View>
 
-      <Pressable style={styles.loginButton} onPress={handleSubmit}>
-        <Text style={styles.loginText}>Log In</Text>
+      <Pressable
+        style={[styles.loginButton, loading && styles.loginButtonDisabled]}
+        onPress={handleSubmit}
+        disabled={loading}
+      >
+        {loading ? (
+          <View style={styles.loadingRow}>
+            <ActivityIndicator size="small" color="#fff" />
+            <Text style={styles.loginText}>Verifying...</Text>
+          </View>
+        ) : (
+          <Text style={styles.loginText}>Log In</Text>
+        )}
       </Pressable>
 
-      <Text style={{ textAlign: 'center', marginVertical: 12, fontSize: 16, color: '#6B7280' }}>
-        or
-      </Text>
+      {/* ✅ Google button REMOVED (as requested) */}
 
-      <Pressable style={styles.googleButton} onPress={() => onLogin('google')}>
-        <Image
-          source={{ uri: 'https://registry.npmmirror.com/@lobehub/icons-static-png/1.75.0/files/dark/google-color.png' }}
-          style={{ width: 18, height: 18, marginRight: 10 }}
-        />
-        <Text style={styles.googleText}>Continue with Google</Text>
-      </Pressable>
-
-      <Pressable onPress={onForgotPassword}>
+      <Pressable onPress={onForgotPassword} disabled={loading}>
         <Text style={styles.forgot}>Forgot password?</Text>
       </Pressable>
 
       <View style={styles.signupContainer}>
         <Text style={styles.signupText}>Don't have an account? </Text>
-        <Pressable onPress={onSignup}>
+        <Pressable onPress={onSignup} disabled={loading}>
           <Text style={styles.signupLink}>Sign Up</Text>
         </Pressable>
       </View>
@@ -130,15 +258,6 @@ const styles = StyleSheet.create({
     flexGrow: 1,
   },
   spacer: { height: 100 },
-  logoContainer: { alignItems: 'center', marginBottom: 24 },
-  logoCircle: {
-    width: 100,
-    height: 100,
-    borderRadius: 50,
-    backgroundColor: '#DBEAFE',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
   title: { fontSize: 32, fontWeight: '600', textAlign: 'center', color: '#111827' },
   description: { fontSize: 14, color: '#6B7280', textAlign: 'center', marginBottom: 24 },
   field: { marginBottom: 16 },
@@ -152,9 +271,11 @@ const styles = StyleSheet.create({
     height: 48,
     paddingHorizontal: 12,
   },
+  disabledField: { opacity: 0.7 },
   icon: { fontSize: 18, marginRight: 8 },
   input: { flex: 1, fontSize: 16 },
-  error: { color: '#DC2626', fontSize: 12, marginTop: 4 },
+  error: { color: '#DC2626', fontSize: 12, marginTop: 6, fontWeight: '700' },
+
   loginButton: {
     height: 48,
     backgroundColor: '#1E3A8A',
@@ -163,20 +284,12 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     marginTop: 12,
   },
+  loginButtonDisabled: { opacity: 0.7 },
+  loadingRow: { flexDirection: 'row', alignItems: 'center', gap: 10 },
   loginText: { color: '#fff', fontSize: 16, fontWeight: '600' },
+
   forgot: { marginTop: 16, color: '#2563EB', fontSize: 14, textAlign: 'center' },
-  googleButton: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    borderWidth: 1,
-    borderColor: '#D1D5DB',
-    borderRadius: 8,
-    height: 48,
-    marginTop: 12,
-  },
-  googleIcon: { fontSize: 18, marginRight: 8 },
-  googleText: { fontSize: 16, color: '#374151' },
+
   signupContainer: {
     flexDirection: 'row',
     justifyContent: 'center',

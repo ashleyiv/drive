@@ -1,143 +1,153 @@
-import React, { useState } from 'react';
+// driveash/components/NewPassword.js
+import React, { useMemo, useState } from 'react';
 import {
   View,
   Text,
   TextInput,
-  TouchableOpacity,
+  Pressable,
   StyleSheet,
+  ActivityIndicator,
+  Alert,
   ScrollView,
 } from 'react-native';
-import { Ionicons } from '@expo/vector-icons';
+import { Feather } from '@expo/vector-icons';
 
 export default function NewPassword({ onSubmit, onBack }) {
   const [password, setPassword] = useState('');
-  const [confirmPassword, setConfirmPassword] = useState('');
-  const [errors, setErrors] = useState({
-    password: '',
-    confirmPassword: '',
-  });
+  const [confirm, setConfirm] = useState('');
+  const [show, setShow] = useState(false);
+  const [loading, setLoading] = useState(false);
 
-  const validateForm = () => {
-    const newErrors = { password: '', confirmPassword: '' };
+  const errors = useMemo(() => {
+    const e = {};
+    const p = String(password || '');
+    const c = String(confirm || '');
 
-    if (!password) {
-      newErrors.password = 'Password is required';
-    } else if (password.length < 6) {
-      newErrors.password = 'Password must be at least 6 characters';
+    if (!p) e.password = 'Password is required';
+    else if (p.trim().length < 6) e.password = 'Password must be at least 6 characters';
+
+    if (!c) e.confirm = 'Confirm your password';
+    else if (p !== c) e.confirm = 'Passwords do not match';
+
+    return e;
+  }, [password, confirm]);
+
+  const canSubmit = Object.keys(errors).length === 0 && !loading;
+
+  const handleSave = async () => {
+    if (loading) return;
+
+    if (errors.password || errors.confirm) {
+      Alert.alert('Fix required', errors.password || errors.confirm);
+      return;
     }
 
-    if (!confirmPassword) {
-      newErrors.confirmPassword = 'Please confirm your password';
-    } else if (password !== confirmPassword) {
-      newErrors.confirmPassword = 'Passwords do not match';
-    }
-
-    setErrors(newErrors);
-    return !newErrors.password && !newErrors.confirmPassword;
-  };
-
-  const handleSubmit = () => {
-    if (validateForm()) {
-      onSubmit();
+    try {
+      setLoading(true);
+      const res = await Promise.resolve(onSubmit?.(password));
+      if (res?.ok === false) {
+        // App.js already shows alerts, but this keeps it safe
+        return;
+      }
+    } finally {
+      setLoading(false);
     }
   };
 
   return (
     <ScrollView contentContainerStyle={styles.container}>
-      <TouchableOpacity style={styles.backButton} onPress={onBack}>
-        <Ionicons name="chevron-back" size={24} color="#111827" />
-        <Text style={styles.backText}>New Password</Text>
-      </TouchableOpacity>
+      <Text style={styles.title}>Create New Password</Text>
+      <Text style={styles.subtitle}>Enter and confirm your new password.</Text>
 
-      <View style={styles.content}>
-        <Text style={styles.title}>New Password</Text>
-        <Text style={styles.subtitle}>Enter your new password</Text>
-
-        {/* Password */}
-        <View style={styles.inputContainer}>
-          <Ionicons
-            name="lock-closed"
-            size={20}
-            color="#6B7280"
-            style={styles.icon}
-          />
-          <TextInput
-            placeholder="Password"
-            secureTextEntry
-            value={password}
-            onChangeText={setPassword}
-            style={styles.input}
-          />
-        </View>
-        {errors.password ? (
-          <Text style={styles.errorText}>{errors.password}</Text>
-        ) : null}
-
-        {/* Confirm Password */}
-        <View style={styles.inputContainer}>
-          <Ionicons
-            name="lock-closed"
-            size={20}
-            color="#6B7280"
-            style={styles.icon}
-          />
-          <TextInput
-            placeholder="Confirm Password"
-            secureTextEntry
-            value={confirmPassword}
-            onChangeText={setConfirmPassword}
-            style={styles.input}
-          />
-        </View>
-        {errors.confirmPassword ? (
-          <Text style={styles.errorText}>{errors.confirmPassword}</Text>
-        ) : null}
-
-        {/* Submit */}
-        <TouchableOpacity
-          style={[
-            styles.submitButton,
-            (!password ||
-              !confirmPassword ||
-              password !== confirmPassword) && { opacity: 0.5 },
-          ]}
-          disabled={!password || !confirmPassword || password !== confirmPassword}
-          onPress={handleSubmit}
-        >
-          <Text style={styles.submitText}>Submit</Text>
-        </TouchableOpacity>
+      <Text style={styles.label}>New Password</Text>
+      <View style={styles.inputWrap}>
+        <Feather name="lock" size={18} color="#6B7280" style={{ marginRight: 8 }} />
+        <TextInput
+          value={password}
+          onChangeText={setPassword}
+          placeholder="New password"
+          secureTextEntry={!show}
+          style={styles.input}
+          editable={!loading}
+        />
+        <Pressable onPress={() => setShow((s) => !s)} disabled={loading}>
+          <Feather name={show ? 'eye-off' : 'eye'} size={18} color="#6B7280" />
+        </Pressable>
       </View>
+      {!!errors.password && <Text style={styles.error}>{errors.password}</Text>}
+
+      <Text style={[styles.label, { marginTop: 14 }]}>Confirm Password</Text>
+      <View style={styles.inputWrap}>
+        <Feather name="check" size={18} color="#6B7280" style={{ marginRight: 8 }} />
+        <TextInput
+          value={confirm}
+          onChangeText={setConfirm}
+          placeholder="Confirm password"
+          secureTextEntry={!show}
+          style={styles.input}
+          editable={!loading}
+        />
+      </View>
+      {!!errors.confirm && <Text style={styles.error}>{errors.confirm}</Text>}
+
+      <Pressable
+        onPress={handleSave}
+        disabled={!canSubmit}
+        style={[styles.primaryBtn, !canSubmit && { opacity: 0.7 }]}
+      >
+        {loading ? (
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
+            <ActivityIndicator color="#fff" />
+            <Text style={styles.primaryText}>Saving…</Text>
+          </View>
+        ) : (
+          <Text style={styles.primaryText}>Save New Password</Text>
+        )}
+      </Pressable>
+
+      <Pressable onPress={onBack} disabled={loading} style={styles.backBtn}>
+        <Text style={styles.backText}>Back</Text>
+      </Pressable>
     </ScrollView>
   );
 }
 
 const styles = StyleSheet.create({
-  container: { flexGrow: 1, backgroundColor: 'white', padding: 24 },
-  backButton: { flexDirection: 'row', alignItems: 'center', marginBottom: 24 },
-  backText: { marginLeft: 8, fontSize: 16, color: '#111827' },
-  content: { flex: 1 },
-  title: { fontSize: 24, fontWeight: '600', color: '#111827' },
-  subtitle: { fontSize: 14, color: '#6B7280', marginBottom: 16 },
-  inputContainer: {
-    flexDirection: 'row',
-    alignItems: 'center',
+  container: {
+    flexGrow: 1,
+    backgroundColor: '#fff',
+    paddingHorizontal: 20,
+    paddingTop: 56,
+    paddingBottom: 40,
+  },
+  title: { fontSize: 22, fontWeight: '900', color: '#111827', textAlign: 'center' },
+  subtitle: { marginTop: 8, fontSize: 13, fontWeight: '700', color: '#6B7280', textAlign: 'center' },
+
+  label: { marginTop: 24, fontSize: 14, fontWeight: '800', color: '#374151' },
+  inputWrap: {
+    marginTop: 8,
+    height: 48,
     borderWidth: 1,
     borderColor: '#D1D5DB',
-    borderRadius: 12,
-    marginBottom: 8,
-    height: 48,
+    borderRadius: 10,
     paddingHorizontal: 12,
+    flexDirection: 'row',
+    alignItems: 'center',
   },
-  icon: { marginRight: 8 },
   input: { flex: 1, fontSize: 16, color: '#111827' },
-  errorText: { color: '#DC2626', fontSize: 12, marginBottom: 8 },
-  submitButton: {
-    backgroundColor: '#1E40AF',
-    borderRadius: 12,
+
+  error: { marginTop: 6, fontSize: 12, color: '#DC2626', fontWeight: '700' },
+
+  primaryBtn: {
+    marginTop: 22,
     height: 48,
+    backgroundColor: '#1E3A8A',
+    borderRadius: 10,
     alignItems: 'center',
     justifyContent: 'center',
-    marginTop: 16,
   },
-  submitText: { color: 'white', fontSize: 16, fontWeight: '600' },
+  primaryText: { color: '#fff', fontSize: 15, fontWeight: '900' },
+
+  backBtn: { marginTop: 14, alignItems: 'center', paddingVertical: 10 },
+  backText: { color: '#2563EB', fontSize: 14, fontWeight: '800' },
 });

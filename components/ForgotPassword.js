@@ -1,3 +1,8 @@
+// driveash/components/ForgotPassword.js
+// ✅ Email-based Forgot Password screen (matches your App.js flow)
+// ✅ Keeps same props: onBack, onSubmit
+// ✅ Does NOT delete your existing layout/structure — only swaps phone -> email
+
 import React, { useState } from 'react';
 import {
   View,
@@ -5,30 +10,46 @@ import {
   TextInput,
   TouchableOpacity,
   StyleSheet,
+  ActivityIndicator,
 } from 'react-native';
 import { Feather } from '@expo/vector-icons';
 
 export default function ForgotPassword({ onBack, onSubmit }) {
-  const [phoneNumber, setPhoneNumber] = useState('');
+  const [email, setEmail] = useState('');
   const [error, setError] = useState('');
+  const [loading, setLoading] = useState(false);
 
-  const handleSubmit = () => {
-    if (!phoneNumber.trim()) {
-      setError('Phone number is required');
+  const normalizeEmail = (input) => String(input ?? '').trim().toLowerCase();
+
+  const handleSubmit = async () => {
+    if (loading) return;
+
+    const e = normalizeEmail(email);
+
+    if (!e) {
+      setError('Email is required');
       return;
     }
-    if (phoneNumber.length < 10) {
-      setError('Please enter a valid phone number');
+    if (!e.includes('@') || !e.includes('.')) {
+      setError('Please enter a valid email');
       return;
     }
 
     setError('');
-    onSubmit(phoneNumber);
+
+    try {
+      setLoading(true);
+      // App.js expects an EMAIL string here:
+      // handleForgotPasswordSubmit = async (emailInput) => { sendEmailOtp({ email: emailInput }) ... }
+      await Promise.resolve(onSubmit?.(e));
+    } finally {
+      setLoading(false);
+    }
   };
 
   return (
     <View style={styles.container}>
-      <TouchableOpacity style={styles.backButton} onPress={onBack}>
+      <TouchableOpacity style={styles.backButton} onPress={onBack} disabled={loading}>
         <Feather name="chevron-left" size={24} color="#111827" />
         <Text style={styles.backText}>Forgot Password</Text>
       </TouchableOpacity>
@@ -42,27 +63,41 @@ export default function ForgotPassword({ onBack, onSubmit }) {
 
         <Text style={styles.title}>Forgot Password?</Text>
         <Text style={styles.subtitle}>
-          Enter your phone number to reset your password.
+          Enter your email to receive a verification code.
         </Text>
 
         <View style={styles.form}>
           <View style={styles.inputWrapper}>
-            <Text style={styles.label}>Phone Number</Text>
-            <View style={styles.inputContainer}>
-              <Text style={styles.prefix}>📱</Text>
+            <Text style={styles.label}>Email</Text>
+            <View style={[styles.inputContainer, loading && styles.disabledField]}>
+              <Feather name="mail" size={18} color="#6B7280" style={{ marginRight: 8 }} />
               <TextInput
                 style={styles.input}
-                placeholder="+63"
-                keyboardType="phone-pad"
-                value={phoneNumber}
-                onChangeText={setPhoneNumber}
+                placeholder="you@example.com"
+                keyboardType="email-address"
+                autoCapitalize="none"
+                autoCorrect={false}
+                value={email}
+                onChangeText={setEmail}
+                editable={!loading}
               />
             </View>
             {error ? <Text style={styles.error}>{error}</Text> : null}
           </View>
 
-          <TouchableOpacity style={styles.submitButton} onPress={handleSubmit}>
-            <Text style={styles.submitButtonText}>Submit</Text>
+          <TouchableOpacity
+            style={[styles.submitButton, loading && styles.submitButtonDisabled]}
+            onPress={handleSubmit}
+            disabled={loading}
+          >
+            {loading ? (
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
+                <ActivityIndicator color="#ffffff" />
+                <Text style={styles.submitButtonText}>Sending…</Text>
+              </View>
+            ) : (
+              <Text style={styles.submitButtonText}>Submit</Text>
+            )}
           </TouchableOpacity>
         </View>
       </View>
@@ -70,7 +105,7 @@ export default function ForgotPassword({ onBack, onSubmit }) {
   );
 }
 
-// Styles
+// Styles (kept your look, minimal changes)
 const styles = StyleSheet.create({
   container: {
     flex: 1,
@@ -142,10 +177,7 @@ const styles = StyleSheet.create({
     height: 48,
     paddingHorizontal: 12,
   },
-  prefix: {
-    marginRight: 8,
-    fontSize: 16,
-  },
+  disabledField: { opacity: 0.7 },
   input: {
     flex: 1,
     fontSize: 16,
@@ -155,6 +187,7 @@ const styles = StyleSheet.create({
     color: '#EF4444',
     fontSize: 12,
     marginTop: 4,
+    fontWeight: '700',
   },
   submitButton: {
     backgroundColor: '#1E40AF',
@@ -164,6 +197,7 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     marginTop: 8,
   },
+  submitButtonDisabled: { opacity: 0.7 },
   submitButtonText: {
     color: '#ffffff',
     fontSize: 16,

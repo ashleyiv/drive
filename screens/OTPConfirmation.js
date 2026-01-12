@@ -1,14 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import {
-  View,
-  Text,
-  TextInput,
-  Pressable,
-  StyleSheet,
-  Image,
-} from 'react-native';
+import { View, Text, TextInput, Pressable, StyleSheet, Image } from 'react-native';
 
-// Defaults (App.js can override via props)
 const DEFAULT_EXPIRY_SECONDS = 300; // 5 minutes
 const DEFAULT_RESEND_COOLDOWN_SECONDS = 300; // 5 minutes
 const DEFAULT_MAX_ATTEMPTS = 5;
@@ -29,18 +21,17 @@ function formatTime(totalSeconds) {
 }
 
 export default function OTPConfirmation({
-  phoneNumber,
-  sentAt, // epoch ms; optional
+  email,
+  sentAt,
   expirySeconds = DEFAULT_EXPIRY_SECONDS,
   resendCooldownSeconds = DEFAULT_RESEND_COOLDOWN_SECONDS,
   maxAttempts = DEFAULT_MAX_ATTEMPTS,
-  onConfirm, // async (token) => { ok, message? } | void
-  onResend, // async () => { ok, message? } | void
+  onConfirm,
+  onResend,
   onBack,
 }) {
   const inputsRef = useRef([]);
 
-  // Keep an internal start time so the screen works even if sentAt wasn't passed.
   const [localSentAt, setLocalSentAt] = useState(() => (typeof sentAt === 'number' ? sentAt : Date.now()));
   useEffect(() => {
     if (typeof sentAt === 'number') setLocalSentAt(sentAt);
@@ -58,7 +49,7 @@ export default function OTPConfirmation({
     return () => clearInterval(id);
   }, []);
 
-  const expiry = clampNumber(expirySeconds, 30, 60 * 30); // 30s .. 30m
+  const expiry = clampNumber(expirySeconds, 30, 60 * 30);
   const cooldown = clampNumber(resendCooldownSeconds, 0, 60 * 30);
   const maxTry = clampNumber(maxAttempts, 1, 20);
 
@@ -85,7 +76,6 @@ export default function OTPConfirmation({
   };
 
   const applyValueAt = (index, value) => {
-    // Accept a single digit, or allow paste of up to OTP_LENGTH digits into any cell
     const digits = String(value ?? '').replace(/\D/g, '');
     if (!digits) {
       setOtp((prev) => {
@@ -96,7 +86,6 @@ export default function OTPConfirmation({
       return;
     }
 
-    // Paste behavior
     if (digits.length > 1) {
       const take = digits.slice(0, OTP_LENGTH);
       const next = Array.from({ length: OTP_LENGTH }, (_, i) => take[i] ?? '');
@@ -107,7 +96,6 @@ export default function OTPConfirmation({
       return;
     }
 
-    // Normal single digit
     const d = digits[0];
     setOtp((prev) => {
       const next = [...prev];
@@ -136,15 +124,11 @@ export default function OTPConfirmation({
 
     try {
       const res = await Promise.resolve(onConfirm?.(token));
-
-      // If handler returns a structured result, respect it.
       if (res && typeof res === 'object' && res.ok === false) {
         setAttemptsUsed((a) => a + 1);
         setError(res.message || 'Invalid code. Please try again.');
         return;
       }
-
-      // If handler returns nothing, assume it handled navigation.
     } catch (e) {
       setAttemptsUsed((a) => a + 1);
       setError(e?.message || 'Invalid code. Please try again.');
@@ -161,7 +145,6 @@ export default function OTPConfirmation({
 
     try {
       const res = await Promise.resolve(onResend?.());
-
       if (res && typeof res === 'object' && res.ok === false) {
         setError(res.message || 'Failed to resend code. Try again.');
         return;
@@ -181,18 +164,12 @@ export default function OTPConfirmation({
       <View style={styles.content}>
         <View style={styles.iconWrapper}>
           <View style={styles.iconCircle}>
-            <Image
-              source={require('../assets/otp-clock.png')}
-              style={styles.iconImage}
-              resizeMode="contain"
-            />
+            <Image source={require('../assets/otp-clock.png')} style={styles.iconImage} resizeMode="contain" />
           </View>
         </View>
 
         <Text style={styles.title}>Almost there!</Text>
-        <Text style={styles.subtitle}>
-          Enter the verification code sent to {phoneNumber}
-        </Text>
+        <Text style={styles.subtitle}>Enter the verification code sent to {email}</Text>
 
         <Text style={[styles.timer, isExpired && styles.expired]}>
           {isExpired ? 'Code expired' : `Code expires in ${formatTime(secondsLeft)}`}
@@ -211,7 +188,7 @@ export default function OTPConfirmation({
               ref={(ref) => (inputsRef.current[index] = ref)}
               style={[styles.otpInput, (isExpired || attemptsLeft === 0) && styles.disabledInput]}
               keyboardType="number-pad"
-              maxLength={index === 0 ? OTP_LENGTH : 1} // allow paste in first box
+              maxLength={index === 0 ? OTP_LENGTH : 1}
               value={digit}
               editable={!isExpired && attemptsLeft > 0 && !isVerifying}
               onChangeText={(value) => applyValueAt(index, value)}
@@ -222,11 +199,7 @@ export default function OTPConfirmation({
 
         {error !== '' && <Text style={styles.error}>{error}</Text>}
 
-        <Pressable
-          style={[styles.primaryButton, disableVerify && styles.disabledButton]}
-          onPress={handleSubmit}
-          disabled={disableVerify}
-        >
+        <Pressable style={[styles.primaryButton, disableVerify && styles.disabledButton]} onPress={handleSubmit} disabled={disableVerify}>
           <Text style={styles.primaryText}>{isVerifying ? 'Verifying...' : 'Continue'}</Text>
         </Pressable>
 
@@ -236,11 +209,7 @@ export default function OTPConfirmation({
           disabled={!canResend || isResending}
         >
           <Text style={styles.outlineText}>
-            {isResending
-              ? 'Sending...'
-              : cooldownLeft > 0
-                ? `Resend in ${formatTime(cooldownLeft)}`
-                : 'Resend Code'}
+            {isResending ? 'Sending...' : cooldownLeft > 0 ? `Resend in ${formatTime(cooldownLeft)}` : 'Resend Code'}
           </Text>
         </Pressable>
 
@@ -255,55 +224,17 @@ export default function OTPConfirmation({
 }
 
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: '#fff',
-    paddingHorizontal: 24,
-    paddingTop: 40,
-    paddingBottom: 32,
-  },
+  container: { flex: 1, backgroundColor: '#fff', paddingHorizontal: 24, paddingTop: 40, paddingBottom: 32 },
   content: { flex: 1 },
   iconWrapper: { alignItems: 'center', marginVertical: 40 },
-  iconCircle: {
-    width: 200,
-    height: 200,
-    borderRadius: 50,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
+  iconCircle: { width: 200, height: 200, borderRadius: 50, alignItems: 'center', justifyContent: 'center' },
   iconImage: { width: 200, height: 200, tintColor: '#1E3A8A' },
-  title: {
-    fontSize: 24,
-    fontWeight: '600',
-    color: '#111827',
-    marginBottom: 8,
-    textAlign: 'center',
-  },
-  subtitle: {
-    fontSize: 14,
-    color: '#6B7280',
-    marginBottom: 8,
-    textAlign: 'center',
-    paddingHorizontal: 16,
-  },
-  timer: {
-    textAlign: 'center',
-    fontSize: 14,
-    color: '#1E3A8A',
-    marginBottom: 8,
-  },
+  title: { fontSize: 24, fontWeight: '600', color: '#111827', marginBottom: 8, textAlign: 'center' },
+  subtitle: { fontSize: 14, color: '#6B7280', marginBottom: 8, textAlign: 'center', paddingHorizontal: 16 },
+  timer: { textAlign: 'center', fontSize: 14, color: '#1E3A8A', marginBottom: 8 },
   expired: { color: '#DC2626' },
-  attempts: {
-    textAlign: 'center',
-    fontSize: 12,
-    color: '#6B7280',
-    marginBottom: 16,
-  },
-  otpRow: {
-    flexDirection: 'row',
-    justifyContent: 'center',
-    marginBottom: 24,
-  },
+  attempts: { textAlign: 'center', fontSize: 12, color: '#6B7280', marginBottom: 16 },
+  otpRow: { flexDirection: 'row', justifyContent: 'center', marginBottom: 24 },
   otpInput: {
     width: 46,
     height: 56,
@@ -316,12 +247,7 @@ const styles = StyleSheet.create({
     backgroundColor: '#F9FAFB',
   },
   disabledInput: { backgroundColor: '#E5E7EB' },
-  error: {
-    color: '#DC2626',
-    fontSize: 14,
-    marginBottom: 12,
-    textAlign: 'center',
-  },
+  error: { color: '#DC2626', fontSize: 14, marginBottom: 12, textAlign: 'center' },
   primaryButton: {
     height: 48,
     backgroundColor: '#1E3A8A',

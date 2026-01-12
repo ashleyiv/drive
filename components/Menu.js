@@ -9,6 +9,7 @@ import {
   Switch,
   Modal,
   Pressable,
+  Image,
 } from 'react-native';
 import { Ionicons, Feather, AntDesign } from '@expo/vector-icons';
 
@@ -17,51 +18,44 @@ import About from './About';
 import PrivacyPolicy from './PrivacyPolicy';
 import TermsOfService from './TermsOfService';
 
+import { getUserAvatarUrl, clearAvatarCache } from '../lib/avatar';
 import { supabase } from '../lib/supabase';
+import { formatPHPretty } from '../lib/phonePH';
 
-// Optional: nice formatting for PH numbers stored like +639123456789
-function formatPhonePretty(phone) {
-  if (!phone) return '';
-  const p = String(phone).trim();
-
-  // Keep already-spaced formatting
-  if (p.includes(' ')) return p;
-
-  // Format +63XXXXXXXXXX -> +63 XXX XXX XXXX (best-effort)
-  if (p.startsWith('+63') && p.length === 13) {
-    const rest = p.slice(3); // 10 digits
-    const a = rest.slice(0, 3);
-    const b = rest.slice(3, 6);
-    const c = rest.slice(6, 10);
-    return `+63 ${a} ${b} ${c}`;
-  }
-
-  return p;
-}
+// ✅ Turn OFF mode switching UI without deleting logic
+const ENABLE_MODE_SWITCH = false;
 
 export default function Menu({
   onNavigate,
   onSwitchToDriver,
   onSwitchToEmergencyContact,
   handleLogout,
-  // Keep defaults but they’ll get replaced by fetched profile if available
+  // fallback defaults
   userName = '—',
   userPhone = '—',
+  userEmail = '—',
 }) {
   const [darkMode, setDarkMode] = useState(false);
+
+  // Mode state (kept, but UI disabled)
   const [isEmergencyContactMode, setIsEmergencyContactMode] = useState(false);
+  const [showEmergencyConfirm, setShowEmergencyConfirm] = useState(false);
+  const [pendingEmergencyValue, setPendingEmergencyValue] = useState(false);
+
   const [showAccountSettings, setShowAccountSettings] = useState(false);
   const [showAbout, setShowAbout] = useState(false);
   const [showPrivacyPolicy, setShowPrivacyPolicy] = useState(false);
   const [showTerms, setShowTerms] = useState(false);
   const [showLogoutConfirm, setShowLogoutConfirm] = useState(false);
-  const [showEmergencyConfirm, setShowEmergencyConfirm] = useState(false);
-  const [pendingEmergencyValue, setPendingEmergencyValue] = useState(false);
 
-  // NEW: Profile state from Supabase
+  // Profile state from Supabase
   const [profileLoading, setProfileLoading] = useState(true);
   const [profileName, setProfileName] = useState(userName);
   const [profilePhone, setProfilePhone] = useState(userPhone);
+  const [profileEmail, setProfileEmail] = useState(userEmail);
+
+  // ✅ Avatar
+  const [profileAvatar, setProfileAvatar] = useState(null);
 
   useEffect(() => {
     let isMounted = true;
@@ -74,49 +68,63 @@ export default function Menu({
         if (userErr) throw userErr;
 
         const user = userRes?.user;
+
+        // Fallback: use auth email even if profile row is missing
+        const authEmail = String(user?.email || userEmail || '—').trim().toLowerCase();
+
         if (!user?.id) {
-          // Not logged in (or session not ready)
           if (isMounted) {
+            setProfileAvatar(null);
             setProfileName(userName);
-            setProfilePhone(userPhone);
+            setProfilePhone(formatPHPretty(userPhone) || userPhone);
+            setProfileEmail(authEmail);
           }
           return;
         }
 
-        // Fetch profile row keyed by auth.users.id
+        // ✅ fetch avatar only when user.id exists
+        clearAvatarCache(user.id); // ensures latest avatar if updated
+        const avatar = await getUserAvatarUrl(user.id);
+        if (isMounted) setProfileAvatar(avatar);
+
         const { data: profile, error: profileErr } = await supabase
-          .from('profiles')
-          .select('first_name,last_name,phone')
+          .from('user_profiles')
+          .select('first_name,last_name,phone,email')
           .eq('id', user.id)
           .maybeSingle();
 
         if (profileErr) {
-          // Most common cause: RLS policy blocking select
           console.log('[Menu] profile fetch error:', profileErr);
           if (isMounted) {
             setProfileName(userName);
-            setProfilePhone(userPhone);
+            setProfilePhone(formatPHPretty(userPhone) || userPhone);
+            setProfileEmail(authEmail);
           }
           return;
         }
 
-        const first = (profile?.first_name ?? '').trim();
-        const last = (profile?.last_name ?? '').trim();
-
+        const first = String(profile?.first_name ?? '').trim();
+        const last = String(profile?.last_name ?? '').trim();
         const fullName =
-          (first || last) ? `${first}${first && last ? ' ' : ''}${last}` : userName;
+          (first || last) ? `${first}${first && last ? ' ' : ''}${last}` : (userName || '—');
 
-        const phonePretty = formatPhonePretty(profile?.phone) || userPhone;
+        const prettyPhone =
+          formatPHPretty(profile?.phone) || formatPHPretty(userPhone) || (userPhone || '—');
+
+        const emailFinal = String(profile?.email || authEmail || '—').trim().toLowerCase();
 
         if (isMounted) {
           setProfileName(fullName);
-          setProfilePhone(phonePretty);
+          setProfilePhone(prettyPhone);
+          setProfileEmail(emailFinal);
         }
       } catch (e) {
         console.log('[Menu] loadProfile unexpected error:', e);
         if (isMounted) {
+          setProfileAvatar(null);
           setProfileName(userName);
-          setProfilePhone(userPhone);
+          setProfilePhone(formatPHPretty(userPhone) || userPhone);
+          setProfileEmail(String(userEmail || '—').trim().toLowerCase());
         }
       } finally {
         if (isMounted) setProfileLoading(false);
@@ -128,8 +136,9 @@ export default function Menu({
     return () => {
       isMounted = false;
     };
-  }, [userName, userPhone]);
+  }, [userName, userPhone, userEmail]);
 
+  // --- Mode switch handlers (kept; UI hidden) ---
   const handleEmergencyContactToggle = (value) => {
     setPendingEmergencyValue(value);
     setShowEmergencyConfirm(true);
@@ -171,25 +180,19 @@ export default function Menu({
 
   const menuItems = [
     {
-      icon: (
-        <Ionicons name="moon" size={20} color={darkMode ? 'white' : '#2563EB'} />
-      ),
+      icon: <Ionicons name="moon" size={20} color={darkMode ? 'white' : '#2563EB'} />,
       label: 'Dark Mode',
       action: () => setDarkMode(!darkMode),
       isSwitch: true,
       switchValue: darkMode,
     },
     {
-      icon: (
-        <Ionicons name="shield" size={20} color={darkMode ? 'white' : '#2563EB'} />
-      ),
+      icon: <Ionicons name="shield" size={20} color={darkMode ? 'white' : '#2563EB'} />,
       label: 'Privacy Policy',
       action: () => setShowPrivacyPolicy(true),
     },
     {
-      icon: (
-        <Feather name="file-text" size={20} color={darkMode ? 'white' : '#2563EB'} />
-      ),
+      icon: <Feather name="file-text" size={20} color={darkMode ? 'white' : '#2563EB'} />,
       label: 'Terms of Service',
       action: () => setShowTerms(true),
     },
@@ -210,6 +213,7 @@ export default function Menu({
       <AccountSettings
         userName={profileName}
         userPhone={profilePhone}
+        userEmail={profileEmail}
         onBack={() => setShowAccountSettings(false)}
         darkMode={darkMode}
       />
@@ -217,8 +221,7 @@ export default function Menu({
   }
 
   if (showAbout) return <About onBack={() => setShowAbout(false)} darkMode={darkMode} />;
-  if (showPrivacyPolicy)
-    return <PrivacyPolicy onBack={() => setShowPrivacyPolicy(false)} darkMode={darkMode} />;
+  if (showPrivacyPolicy) return <PrivacyPolicy onBack={() => setShowPrivacyPolicy(false)} darkMode={darkMode} />;
   if (showTerms) return <TermsOfService onBack={() => setShowTerms(false)} darkMode={darkMode} />;
 
   return (
@@ -227,16 +230,21 @@ export default function Menu({
         style={[styles.profileCard, { backgroundColor: theme.cardBackground }]}
         onPress={() => setShowAccountSettings(true)}
       >
-        <View style={[styles.avatar, { backgroundColor: theme.iconColor }]}>
-          <Ionicons name="person" size={32} color="white" />
+        <View style={[styles.avatar, { backgroundColor: theme.iconColor, overflow: 'hidden' }]}>
+          {profileAvatar ? (
+            <Image source={{ uri: profileAvatar }} style={{ width: 64, height: 64 }} />
+          ) : (
+            <Ionicons name="person" size={32} color="white" />
+          )}
         </View>
 
         <View style={{ flex: 1, marginLeft: 12 }}>
           <Text style={[styles.userName, { color: 'white' }]}>
             {profileLoading ? 'Loading…' : profileName}
           </Text>
+
           <Text style={[styles.userPhone, { color: 'white' }]}>
-            {profileLoading ? ' ' : profilePhone}
+            {profileLoading ? ' ' : (profilePhone || '—')}
           </Text>
         </View>
 
@@ -244,44 +252,42 @@ export default function Menu({
       </TouchableOpacity>
 
       <ScrollView style={{ flex: 1 }}>
-        <View style={styles.toggleContainer}>
-          <Text style={[styles.toggleTitle, { color: theme.textPrimary }]}>Mode</Text>
+        {/* ✅ Mode section hidden */}
+        {ENABLE_MODE_SWITCH && (
+          <View style={styles.toggleContainer}>
+            <Text style={[styles.toggleTitle, { color: theme.textPrimary }]}>Mode</Text>
 
-          <View
-            style={[
-              styles.toggleItem,
-              {
-                backgroundColor: theme.toggleBackground,
-                borderColor: theme.borderColor,
-                borderWidth: 1,
-              },
-            ]}
-          >
-            <View style={{ flexDirection: 'row', alignItems: 'center' }}>
-              <View style={[styles.toggleIcon, { backgroundColor: theme.toggleIconBackground }]}>
-                <AntDesign name="user-switch" size={20} color={darkMode ? 'white' : '#2563EB'} />
+            <View
+              style={[
+                styles.toggleItem,
+                {
+                  backgroundColor: theme.toggleBackground,
+                  borderColor: theme.borderColor,
+                  borderWidth: 1,
+                },
+              ]}
+            >
+              <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+                <View style={[styles.toggleIcon, { backgroundColor: theme.toggleIconBackground }]}>
+                  <AntDesign name="user-switch" size={20} color={darkMode ? 'white' : '#2563EB'} />
+                </View>
+
+                <View style={{ marginLeft: 12 }}>
+                  <Text style={[styles.toggleLabel, { color: theme.textPrimary }]}>
+                    Emergency Contact Person
+                  </Text>
+                  <Text style={[styles.toggleSubLabel, { color: theme.textSecondary }]}>
+                    Switch to monitor connected drivers
+                  </Text>
+                </View>
               </View>
 
-              <View style={{ marginLeft: 12 }}>
-                <Text style={[styles.toggleLabel, { color: theme.textPrimary }]}>
-                  Emergency Contact Person
-                </Text>
-                <Text style={[styles.toggleSubLabel, { color: theme.textSecondary }]}>
-                  Switch to monitor connected drivers
-                </Text>
-              </View>
+              <TouchableOpacity onPress={() => handleEmergencyContactToggle(!isEmergencyContactMode)}>
+                <Switch value={isEmergencyContactMode} disabled trackColor={{ false: '#D1D5DB', true: '#2563EB' }} thumbColor="white" />
+              </TouchableOpacity>
             </View>
-
-            <TouchableOpacity onPress={() => handleEmergencyContactToggle(!isEmergencyContactMode)}>
-              <Switch
-                value={isEmergencyContactMode}
-                disabled
-                trackColor={{ false: '#D1D5DB', true: '#2563EB' }}
-                thumbColor="white"
-              />
-            </TouchableOpacity>
           </View>
-        </View>
+        )}
 
         {menuItems.map((item, index) => (
           <TouchableOpacity
@@ -311,12 +317,11 @@ export default function Menu({
       <View style={[styles.navbar, { backgroundColor: theme.navBackground }]}>
         <NavItem icon="home" label="Home" onPress={() => onNavigate('dashboard')} active={false} theme={theme} />
         <NavItem icon="clock" label="History" onPress={() => onNavigate('history')} active={false} theme={theme} />
-        <NavItem icon="map-pin" label="Location" onPress={() => onNavigate('location')} active={false} theme={theme} />
         <NavItem icon="users" label="Contacts" onPress={() => onNavigate('contacts')} active={false} theme={theme} />
         <NavItem icon="menu" label="Menu" onPress={() => onNavigate('menu')} active theme={theme} />
       </View>
 
-      {/* Emergency mode confirm */}
+      {/* Emergency mode confirm (kept; won't show because UI hidden) */}
       <Modal transparent visible={showEmergencyConfirm} animationType="fade">
         <View style={styles.modalOverlay}>
           <View style={styles.modalBox}>
@@ -346,10 +351,7 @@ export default function Menu({
             <Text style={styles.modalText}>Are you sure you want to log out?</Text>
 
             <View style={styles.modalActions}>
-              <Pressable
-                style={[styles.modalButton, styles.cancelButton]}
-                onPress={() => setShowLogoutConfirm(false)}
-              >
+              <Pressable style={[styles.modalButton, styles.cancelButton]} onPress={() => setShowLogoutConfirm(false)}>
                 <Text style={styles.cancelText}>Cancel</Text>
               </Pressable>
 
@@ -408,6 +410,7 @@ const styles = StyleSheet.create({
   },
   userName: { fontSize: 18, fontWeight: 'bold' },
   userPhone: { fontSize: 14, opacity: 0.9 },
+
   toggleContainer: { paddingHorizontal: 16 },
   toggleTitle: { fontSize: 14, marginBottom: 8, fontWeight: 'bold' },
   toggleItem: {
@@ -426,6 +429,7 @@ const styles = StyleSheet.create({
   },
   toggleLabel: { fontSize: 14, fontWeight: '500' },
   toggleSubLabel: { fontSize: 12 },
+
   menuItem: {
     flexDirection: 'row',
     justifyContent: 'space-between',
@@ -436,11 +440,13 @@ const styles = StyleSheet.create({
   },
   menuItemLeft: { flexDirection: 'row', alignItems: 'center' },
   menuLabel: { fontSize: 16, marginLeft: 12 },
+
   navbar: {
     flexDirection: 'row',
     justifyContent: 'space-around',
     paddingVertical: 12,
   },
+
   modalOverlay: {
     flex: 1,
     backgroundColor: 'rgba(0,0,0,0.5)',
@@ -473,18 +479,8 @@ const styles = StyleSheet.create({
     borderRadius: 8,
     marginLeft: 8,
   },
-  cancelButton: {
-    backgroundColor: '#E5E7EB',
-  },
-  confirmButton: {
-    backgroundColor: '#2563EB',
-  },
-  cancelText: {
-    color: '#111827',
-    fontWeight: '500',
-  },
-  confirmText: {
-    color: 'white',
-    fontWeight: '600',
-  },
+  cancelButton: { backgroundColor: '#E5E7EB' },
+  confirmButton: { backgroundColor: '#2563EB' },
+  cancelText: { color: '#111827', fontWeight: '500' },
+  confirmText: { color: 'white', fontWeight: '600' },
 });
