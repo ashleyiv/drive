@@ -21,7 +21,7 @@ import TermsOfService from './TermsOfService';
 import { getUserAvatarUrl, clearAvatarCache } from '../lib/avatar';
 import { supabase } from '../lib/supabase';
 import { formatPHPretty } from '../lib/phonePH';
-
+import BottomNav from './BottomNav';
 // ✅ Turn OFF mode switching UI without deleting logic
 const ENABLE_MODE_SWITCH = false;
 
@@ -314,12 +314,13 @@ export default function Menu({
         ))}
       </ScrollView>
 
-      <View style={[styles.navbar, { backgroundColor: theme.navBackground }]}>
-        <NavItem icon="home" label="Home" onPress={() => onNavigate('dashboard')} active={false} theme={theme} />
-        <NavItem icon="clock" label="History" onPress={() => onNavigate('history')} active={false} theme={theme} />
-        <NavItem icon="users" label="Contacts" onPress={() => onNavigate('contacts')} active={false} theme={theme} />
-        <NavItem icon="menu" label="Menu" onPress={() => onNavigate('menu')} active theme={theme} />
-      </View>
+     <BottomNav
+  variant="driver"
+  activeKey="menu"
+  onNavigate={onNavigate}
+  theme={theme}
+/>
+
 
       {/* Emergency mode confirm (kept; won't show because UI hidden) */}
       <Modal transparent visible={showEmergencyConfirm} animationType="fade">

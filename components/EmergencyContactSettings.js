@@ -13,7 +13,8 @@ import { Feather, Ionicons, Entypo, AntDesign, FontAwesome5 } from '@expo/vector
 import { supabase } from '../lib/supabase';
 import { formatPHPretty } from '../lib/phonePH';
 import { clearAvatarCache, getUserAvatarUrl, resolveAvatarUrl } from '../lib/avatar'; // ✅ added
-
+import BottomNav from './BottomNav';
+import { usePendingInviteCount } from '../lib/usePendingInviteCount';
 const ENABLE_MODE_SWITCH = false; // ✅ Disable switching UI without deleting logic
 
 const lightTheme = {
@@ -65,6 +66,7 @@ export default function EmergencyContactSettings({ onNavigate, onSwitchToDriver 
   const [avatarCacheBust, setAvatarCacheBust] = useState(Date.now());
 
   const theme = isDarkMode ? darkTheme : lightTheme;
+const { count: pendingInviteCount } = usePendingInviteCount();
 
   useEffect(() => {
     let isMounted = true;
@@ -346,12 +348,13 @@ export default function EmergencyContactSettings({ onNavigate, onSwitchToDriver 
         </View>
       </Modal>
 
-      {/* Bottom nav */}
-      <View style={[styles.bottomNav, { backgroundColor: theme.card, borderColor: theme.divider }]}>
-        <NavItem icon="users" library="fa5" label="Drivers" theme={theme} onPress={() => onNavigate('ec-dashboard')} />
-        <NavItem icon="bell" label="Notifications" theme={theme} onPress={() => onNavigate('ec-notifications')} />
-        <NavItem icon="settings" label="Settings" active theme={theme} onPress={() => onNavigate('ec-settings')} />
-      </View>
+     <BottomNav
+  variant="emergency"
+  activeKey="settings"
+  onNavigate={onNavigate}
+  notificationCount={pendingInviteCount}
+/>
+
     </View>
   );
 }

@@ -20,6 +20,8 @@ import { FontAwesome5, Feather, Ionicons, MaterialCommunityIcons } from '@expo/v
 import { DeviceSession } from '../lib/deviceSession';
 import { supabase } from '../lib/supabase';
 import { resolveAvatarUrl } from '../lib/avatar';
+import BottomNav from './BottomNav';
+import { usePendingInviteCount } from '../lib/usePendingInviteCount';
 
 // ✅ keep your mock drivers as fallback (do NOT delete)
 const mockDrivers = [
@@ -122,6 +124,15 @@ function displayNameFromProfile(p) {
   const full = `${first}${first && last ? ' ' : ''}${last}`.trim();
   return full || String(p?.email || 'Unknown User');
 }
+// ✅ Staleness rule: LIVE only if location is fresh (90 seconds)
+const STALE_THRESHOLD_MS = 90 * 1000;
+
+function isFreshLocation(iso) {
+  if (!iso) return false;
+  const t = new Date(iso).getTime();
+  if (!Number.isFinite(t)) return false;
+  return Date.now() - t <= STALE_THRESHOLD_MS;
+}
 
 function timeAgoText(iso) {
   if (!iso) return '—';
@@ -192,7 +203,15 @@ function resolveMaybeUrl(value) {
 }
 
 export default function EmergencyContactDashboard({ onNavigate, onViewDriver, onSwitchToDriver }) {
+  const { count: pendingInviteCount } = usePendingInviteCount();
   const [drivers, setDrivers] = useState(mockDrivers);
+
+  // ✅ forces periodic re-render so staleness flips automatically
+  const [nowTick, setNowTick] = useState(Date.now());
+  useEffect(() => {
+    const t = setInterval(() => setNowTick(Date.now()), 5000); // every 5s is enough
+    return () => clearInterval(t);
+  }, []);
 
   // ✅ Mode overlay shows ONLY when switching into Emergency Contact mode
   const [modeOverlayVisible, setModeOverlayVisible] = useState(false);
@@ -224,21 +243,103 @@ export default function EmergencyContactDashboard({ onNavigate, onViewDriver, on
   }, [drivers, bigMapDriverId]);
 
   const bigMapDriver = bigMapDriverLive || bigMapSnapshot || null;
+const openBigMapForDriver = (driverId) => {
+  // ✅ realtime only when viewing this driver
+  startLiveDriver(driverId);
 
-  const openBigMapForDriver = (driverId) => {
-    setBigMapDriverId(driverId);
+  setBigMapDriverId(driverId);
 
-    const snap = drivers.find((d) => String(d.id) === String(driverId)) || null;
-    if (snap) setBigMapSnapshot(snap);
+  const snap = drivers.find((d) => String(d.id) === String(driverId)) || null;
+  if (snap) setBigMapSnapshot(snap);
 
-    setShowBigMap(true);
-  };
+  setShowBigMap(true);
+};
 
-  const closeBigMap = () => {
-    setShowBigMap(false);
-    setBigMapDriverId(null);
-    setBigMapSnapshot(null);
-  };
+
+const closeBigMap = () => {
+  // ✅ stop realtime when closing view
+  stopLiveDriver();
+
+  setShowBigMap(false);
+  setBigMapDriverId(null);
+  setBigMapSnapshot(null);
+};
+
+
+// ✅ per-driver realtime channel (only active when a driver view is open)
+const liveChannelRef = useRef(null);
+const liveDriverIdRef = useRef(null);
+
+const stopLiveDriver = () => {
+  try {
+    if (liveChannelRef.current) {
+      supabase.removeChannel(liveChannelRef.current);
+    }
+  } catch {}
+  liveChannelRef.current = null;
+  liveDriverIdRef.current = null;
+};
+
+const startLiveDriver = (driverId) => {
+  try {
+    stopLiveDriver();
+
+    const id = String(driverId);
+    liveDriverIdRef.current = id;
+
+    liveChannelRef.current = supabase
+      .channel(`driver-live:${id}`)
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+          table: 'driver_status',
+          filter: `user_id=eq.${id}`,
+        },
+        (payload) => {
+          const row = payload?.new;
+          if (!row?.user_id) return;
+
+          const lat = row.last_lat;
+          const lng = row.last_lng;
+          if (lat == null || lng == null) return;
+
+          const coords = { latitude: lat, longitude: lng };
+
+          // ✅ Update ONLY that driver in state (minimal)
+          setDrivers((prev) =>
+            prev.map((d) => {
+              if (String(d.id) !== id) return d;
+return {
+  ...d,
+  coordinates: coords,
+  lastLocationAt: row.last_location_at ?? d.lastLocationAt ?? null,
+  lastLocation: `Lat:${coords.latitude.toFixed(4)}, Lng:${coords.longitude.toFixed(4)}`,
+  lastUpdate: row.last_location_at
+    ? new Date(row.last_location_at).toLocaleString()
+    : d.lastUpdate,
+
+  // no history: keep only latest point
+  route: [coords],
+};
+
+            })
+          );
+        }
+      )
+      .subscribe();
+  } catch (e) {
+    console.log('[EmergencyContactDashboard] startLiveDriver error:', e);
+  }
+};
+
+// ✅ Safety cleanup if dashboard unmounts
+useEffect(() => {
+  return () => stopLiveDriver();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+}, []);
+
 
   // ✅ Driver Status (FULL SCREEN modal) (KEEP)
   const [showDriverStatus, setShowDriverStatus] = useState(false);
@@ -520,6 +621,10 @@ export default function EmergencyContactDashboard({ onNavigate, onViewDriver, on
 
         const mode = st?.mode || 'contact';
 
+// ✅ live only if mode is driver AND timestamp is fresh
+const live = mode === 'driver' && isFreshLocation(st?.last_location_at);
+
+
         let status = 'safe';
         if (warn?.level === 2) status = 'warning';
         if (warn?.level === 3) status = 'danger';
@@ -538,19 +643,23 @@ export default function EmergencyContactDashboard({ onNavigate, onViewDriver, on
         const warningSpeedText = speedTextFromMeta(warn?.meta);
         const warningLocationText = warn?.location_text ? String(warn.location_text) : null;
 
-        return {
-          id: uid,
-          name,
-          mode,
-          status,
+       return {
+  id: uid,
+  name,
+  mode,
+  status,
 
-          // existing fields
-          warningLevel: warn?.level ?? null,
-          lastUpdate: lastUpdateText,
-          lastLocation: lastLocationText,
-          coordinates: coords || { latitude: 14.5995, longitude: 120.9842 },
-          route: coords ? [coords] : [],
-          avatarUri: avatarUri || null,
+  // ✅ keep raw timestamp for staleness logic
+  lastLocationAt: st?.last_location_at ?? null,
+
+  // existing fields
+  warningLevel: warn?.level ?? null,
+  lastUpdate: lastUpdateText,
+  lastLocation: lastLocationText,
+  coordinates: coords || { latitude: 14.5995, longitude: 120.9842 },
+  route: coords ? [coords] : [],
+  avatarUri: avatarUri || null,
+
 
           // ✅ new fields (non-breaking additions)
           warningCreatedAt: warn?.created_at ?? null,
@@ -588,36 +697,47 @@ export default function EmergencyContactDashboard({ onNavigate, onViewDriver, on
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // Optional realtime refresh (driver_status changes)
-  useEffect(() => {
-    let channel;
+ // Optional realtime refresh (driver_status changes)
+// ✅ Requirement: NO realtime on initial dashboard load.
+// Keep code but disabled to avoid breaking existing flows.
+/// Optional realtime refresh (driver_status changes)
+// ✅ Requirement: NO realtime on initial dashboard load
+const ENABLE_GLOBAL_STATUS_REALTIME = false;
 
-    const sub = async () => {
-      try {
-        const { data: userRes } = await supabase.auth.getUser();
-        const me = userRes?.user;
-        if (!me?.id) return;
+useEffect(() => {
+  if (!ENABLE_GLOBAL_STATUS_REALTIME) return;
 
-        channel = supabase
-          .channel('ec-driver-status')
-          .on(
-            'postgres_changes',
-            { event: '*', schema: 'public', table: 'driver_status' },
-            () => loadConnectedDrivers()
-          )
-          .subscribe();
-      } catch (e) {
-        console.log('[EmergencyContactDashboard] realtime subscribe error:', e);
-      }
-    };
+  let channel;
 
-    sub();
+  const sub = async () => {
+    try {
+      const { data: userRes } = await supabase.auth.getUser();
+      const me = userRes?.user;
+      if (!me?.id) return;
 
-    return () => {
-      if (channel) supabase.removeChannel(channel);
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+      channel = supabase
+        .channel('ec-driver-status')
+        .on(
+          'postgres_changes',
+          { event: '*', schema: 'public', table: 'driver_status' },
+          () => loadConnectedDrivers()
+        )
+        .subscribe();
+    } catch (e) {
+      console.log('[EmergencyContactDashboard] realtime subscribe error:', e);
+    }
+  };
+
+  sub();
+
+  return () => {
+    if (channel) supabase.removeChannel(channel);
+  };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+}, []);
+
+
+
 
   const getStatusColor = (status) => {
     switch (status) {
@@ -712,130 +832,168 @@ export default function EmergencyContactDashboard({ onNavigate, onViewDriver, on
             <FontAwesome5 name="users" size={42} color="#D1D5DB" />
             <Text style={{ marginTop: 10, color: '#6B7280' }}>No connected drivers yet</Text>
           </View>
-        ) : (
-          drivers.map((driver) => {
-            const isDriving = driver.mode === 'driver';
-            const hasWarning = !!driver.warningLevel;
+     ) : (
+  drivers.map((driver) => {
+    // ✅ LIVE only if mode=driver AND last_location_at is fresh
+    // nowTick is used only to re-render periodically for staleness
+    const _ = nowTick;
 
-            return (
-              <TouchableOpacity
-                key={driver.id}
-                style={styles.driverCard}
-                onPress={() => handleDriverPress(driver)}
+    const isDriving =
+      driver.mode === 'driver' && isFreshLocation(driver.lastLocationAt);
+
+    const hasWarning = !!driver.warningLevel;
+
+    return (
+      <TouchableOpacity
+          key={driver.id}
+  style={styles.driverCard}
+  onPress={() => openBigMapForDriver(driver.id)}   // ✅ whole card opens Big Map
+  onLongPress={() => handleDriverPress(driver)}     // ✅ optional: keep old behavior (danger modal / view driver)
+  delayLongPress={350}
+      >
+        <View style={styles.driverInfo}>
+          <View style={styles.avatar}>
+            {driver.avatarUri ? (
+              <Image
+                source={{ uri: driver.avatarUri }}
+                style={styles.avatarImg}
+                resizeMode="cover"
+              />
+            ) : (
+              <FontAwesome5 name="user" size={24} color="#1D4ED8" />
+            )}
+          </View>
+
+          <View style={{ flex: 1 }}>
+            <View style={styles.driverHeader}>
+              <Text style={styles.driverName}>{driver.name}</Text>
+
+              <View
+                style={[
+                  styles.modeBadge,
+                  { backgroundColor: isDriving ? '#DBEAFE' : '#E5E7EB' },
+                ]}
               >
-                <View style={styles.driverInfo}>
-                  <View style={styles.avatar}>
-                    {driver.avatarUri ? (
-                      <Image source={{ uri: driver.avatarUri }} style={styles.avatarImg} resizeMode="cover" />
-                    ) : (
-                      <FontAwesome5 name="user" size={24} color="#1D4ED8" />
-                    )}
-                  </View>
+                <Text
+                  style={[
+                    styles.modeText,
+                    { color: isDriving ? '#1E40AF' : '#374151' },
+                  ]}
+                >
+                  {isDriving ? 'DRIVING' : 'NOT DRIVING'}
+                </Text>
+              </View>
+            </View>
 
-                  <View style={{ flex: 1 }}>
-                    <View style={styles.driverHeader}>
-                      <Text style={styles.driverName}>{driver.name}</Text>
-
-                      <View style={[styles.modeBadge, { backgroundColor: isDriving ? '#DBEAFE' : '#E5E7EB' }]}>
-                        <Text style={[styles.modeText, { color: isDriving ? '#1E40AF' : '#374151' }]}>
-                          {isDriving ? 'DRIVING' : 'NOT DRIVING'}
-                        </Text>
-                      </View>
-                    </View>
-
-                    {hasWarning && (
-                      <View style={{ marginTop: 6, alignSelf: 'flex-start' }}>
-                        <View style={[styles.statusBadge, { backgroundColor: getStatusColor(driver.status) }]}>
-                          <Text style={styles.statusText}>LEVEL {driver.warningLevel} WARNING</Text>
-                        </View>
-                      </View>
-                    )}
-
-                    {!isDriving && (
-                      <Text style={styles.notDrivingText}>
-                        User is not driving / In Contact person mode
-                      </Text>
-                    )}
-
-                    <View style={styles.driverLocation}>
-                      <Feather name="map-pin" size={16} color="#6B7280" />
-                      <Text style={styles.driverLocationText}>{driver.lastLocation}</Text>
-                    </View>
-
-                    <Text style={styles.driverUpdated}>Last update: {driver.lastUpdate}</Text>
-
-                    <View style={styles.miniMapContainer}>
-                      <View style={{ flex: 1, position: 'relative' }}>
-                        <MapView
-                          style={styles.miniMap}
-                          key={`${driver.id}_${driver.coordinates.latitude}_${driver.coordinates.longitude}`}
-                          initialRegion={{
-                            latitude: driver.coordinates.latitude,
-                            longitude: driver.coordinates.longitude,
-                            latitudeDelta: 0.005,
-                            longitudeDelta: 0.005,
-                          }}
-                          pointerEvents="none"
-                        >
-                          <Marker coordinate={driver.coordinates} />
-                          {driver.route?.length > 1 && (
-                            <Polyline coordinates={driver.route} strokeColor="#2563EB" strokeWidth={2} />
-                          )}
-                        </MapView>
-
-                        {/* ✅ Tap anywhere on mini-map opens BIG MAP modal */}
-                        <Pressable
-                          onPress={() => openBigMapForDriver(driver.id)}
-                          style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0 }}
-                        />
-
-                        {/* Pill opens BIG MAP */}
-                        <Pressable
-                          onPress={() => openBigMapForDriver(driver.id)}
-                          style={{
-                            position: 'absolute',
-                            right: 10,
-                            bottom: 10,
-                            backgroundColor: 'rgba(255,255,255,0.92)',
-                            borderRadius: 999,
-                            paddingHorizontal: 10,
-                            paddingVertical: 6,
-                            flexDirection: 'row',
-                            alignItems: 'center',
-                          }}
-                        >
-                          <Ionicons name="expand" size={14} color="#111827" />
-                          <Text style={{ marginLeft: 6, fontSize: 11, fontWeight: '800', color: '#111827' }}>
-                            View map
-                          </Text>
-                        </Pressable>
-                      </View>
-                    </View>
-                  </View>
+            {hasWarning && (
+              <View style={{ marginTop: 6, alignSelf: 'flex-start' }}>
+                <View
+                  style={[
+                    styles.statusBadge,
+                    { backgroundColor: getStatusColor(driver.status) },
+                  ]}
+                >
+                  <Text style={styles.statusText}>
+                    LEVEL {driver.warningLevel} WARNING
+                  </Text>
                 </View>
-              </TouchableOpacity>
-            );
-          })
-        )}
+              </View>
+            )}
+
+            {!isDriving && (
+              <Text style={styles.notDrivingText}>
+                Not live right now (showing last known location)
+              </Text>
+            )}
+
+            <View style={styles.driverLocation}>
+              <Feather name="map-pin" size={16} color="#6B7280" />
+              <Text style={styles.driverLocationText}>
+                {driver.lastLocation}
+              </Text>
+            </View>
+
+            <Text style={styles.driverUpdated}>
+              Last update: {driver.lastUpdate}
+            </Text>
+
+            <View style={styles.miniMapContainer}>
+              <View style={{ flex: 1, position: 'relative' }}>
+                <MapView
+                  style={styles.miniMap}
+                  key={`MINI_${driver.id}`}
+                  initialRegion={{
+                    latitude: driver.coordinates.latitude,
+                    longitude: driver.coordinates.longitude,
+                    latitudeDelta: 0.005,
+                    longitudeDelta: 0.005,
+                  }}
+                  pointerEvents="none"
+                >
+                  <Marker coordinate={driver.coordinates} />
+                  {driver.route?.length > 1 && (
+                    <Polyline
+                      coordinates={driver.route}
+                      strokeColor="#2563EB"
+                      strokeWidth={2}
+                    />
+                  )}
+                </MapView>
+
+                <Pressable
+                  onPress={() => openBigMapForDriver(driver.id)}
+                  style={{
+                    position: 'absolute',
+                    top: 0,
+                    left: 0,
+                    right: 0,
+                    bottom: 0,
+                  }}
+                />
+
+                <Pressable
+                  onPress={() => openBigMapForDriver(driver.id)}
+                  style={{
+                    position: 'absolute',
+                    right: 10,
+                    bottom: 10,
+                    backgroundColor: 'rgba(255,255,255,0.92)',
+                    borderRadius: 999,
+                    paddingHorizontal: 10,
+                    paddingVertical: 6,
+                    flexDirection: 'row',
+                    alignItems: 'center',
+                  }}
+                >
+                  <Ionicons name="expand" size={14} color="#111827" />
+                  <Text
+                    style={{
+                      marginLeft: 6,
+                      fontSize: 11,
+                      fontWeight: '800',
+                      color: '#111827',
+                    }}
+                  >
+                    View map
+                  </Text>
+                </Pressable>
+              </View>
+            </View>
+          </View>
+        </View>
+      </TouchableOpacity>
+    );
+  })
+)}
+
       </ScrollView>
+<BottomNav
+  variant="emergency"
+  activeKey="drivers"
+  onNavigate={onNavigate}
+  notificationCount={pendingInviteCount}
+/>
 
-      {/* Bottom Nav */}
-      <View style={styles.bottomNav}>
-        <TouchableOpacity onPress={() => onNavigate?.('ec-dashboard')} style={styles.navButton}>
-          <FontAwesome5 name="users" size={24} color="#1D4ED8" />
-          <Text style={styles.navLabel}>Drivers</Text>
-        </TouchableOpacity>
-
-        <TouchableOpacity onPress={() => onNavigate?.('ec-notifications')} style={styles.navButton}>
-          <Feather name="bell" size={24} color="#6B7280" />
-          <Text style={styles.navLabelInactive}>Notifications</Text>
-        </TouchableOpacity>
-
-        <TouchableOpacity onPress={() => onNavigate?.('ec-settings')} style={styles.navButton}>
-          <Feather name="settings" size={24} color="#6B7280" />
-          <Text style={styles.navLabelInactive}>Settings</Text>
-        </TouchableOpacity>
-      </View>
 
       {/* DANGER MODAL (KEEP) */}
       <Modal transparent visible={showDangerModal} animationType="fade">
@@ -931,7 +1089,7 @@ export default function EmergencyContactDashboard({ onNavigate, onViewDriver, on
               {bigMapDriver ? (
                 <MapView
                   style={{ height: 340, width: '100%', marginTop: 12 }}
-                  key={`BIG_${bigMapDriver.id}_${bigMapDriver.coordinates.latitude}_${bigMapDriver.coordinates.longitude}`}
+                  key={`BIG_${bigMapDriver.id}`}
                   initialRegion={{
                     latitude: bigMapDriver.coordinates.latitude,
                     longitude: bigMapDriver.coordinates.longitude,
@@ -993,13 +1151,30 @@ export default function EmergencyContactDashboard({ onNavigate, onViewDriver, on
                       width: 8,
                       height: 8,
                       borderRadius: 4,
-                      backgroundColor: selectedDriver.mode === 'driver' ? '#22C55E' : '#9CA3AF',
+                      backgroundColor:
+  (selectedDriver.mode === 'driver' && isFreshLocation(selectedDriver.lastLocationAt))
+    ? '#22C55E'
+    : '#9CA3AF',
+
                       marginRight: 8,
                     }}
                   />
-                  <Text style={[styles.dsLiveText, { color: selectedDriver.mode === 'driver' ? '#22C55E' : '#6B7280' }]}>
-                    {selectedDriver.mode === 'driver' ? 'LIVE TRACKING' : 'NOT DRIVING'}
-                  </Text>
+                  <Text
+  style={[
+    styles.dsLiveText,
+    {
+      color:
+        (selectedDriver.mode === 'driver' && isFreshLocation(selectedDriver.lastLocationAt))
+          ? '#22C55E'
+          : '#6B7280',
+    },
+  ]}
+>
+  {(selectedDriver.mode === 'driver' && isFreshLocation(selectedDriver.lastLocationAt))
+    ? 'LIVE TRACKING'
+    : 'NOT DRIVING'}
+</Text>
+
                 </View>
 
                 <View style={styles.dsPhoto}>
@@ -1033,9 +1208,10 @@ export default function EmergencyContactDashboard({ onNavigate, onViewDriver, on
                       ? 'Immediate attention required.'
                       : selectedDriver.status === 'warning'
                       ? 'Driver may need attention.'
-                      : selectedDriver.mode === 'driver'
-                      ? 'No risk detected.'
-                      : 'No risk detected. (User is in contact person mode)'}
+                   : (selectedDriver.mode === 'driver' && isFreshLocation(selectedDriver.lastLocationAt))
+? 'No risk detected.'
+: 'Not live right now (showing last known location)'}
+
                   </Text>
 
                   <Text style={styles.dsStatusMeta}>Location: {selectedDriver.lastLocation}</Text>
@@ -1046,8 +1222,8 @@ export default function EmergencyContactDashboard({ onNavigate, onViewDriver, on
                   <View style={{ flex: 1 }}>
                     <MapView
                       style={{ flex: 1 }}
-                      key={`DS_${selectedDriver.id}_${selectedDriver.coordinates.latitude}_${selectedDriver.coordinates.longitude}`}
-                      initialRegion={{
+                      key={`DS_${selectedDriver.id}`}                    
+                        initialRegion={{
                         latitude: selectedDriver.coordinates.latitude,
                         longitude: selectedDriver.coordinates.longitude,
                         latitudeDelta: 0.01,

@@ -13,7 +13,8 @@ import {
 import { MaterialIcons, FontAwesome5, Feather } from '@expo/vector-icons';
 import { supabase } from '../lib/supabase';
 import { getUsersAvatarUrls, resolveAvatarUrl } from '../lib/avatar'; // ✅ add
-
+import BottomNav from './BottomNav';
+import { usePendingInviteCount } from '../lib/usePendingInviteCount';
 const Button = ({ onPress, children, style, variant }) => {
   const buttonStyle = [styles.button, style, variant === 'outline' ? styles.outlineButton : null];
   return (
@@ -32,6 +33,7 @@ function displayNameFromProfile(p) {
 
 export default function EmergencyContactNotifications({ onNavigate }) {
   const [loading, setLoading] = useState(true);
+    const { count: pendingInviteCount } = usePendingInviteCount();
 
   // Keep your existing alert sample (for drowsiness warnings etc.)
   const [alerts] = useState([
@@ -296,22 +298,13 @@ export default function EmergencyContactNotifications({ onNavigate }) {
         )}
       </View>
 
-      <View style={styles.bottomNav}>
-        <TouchableOpacity style={styles.navButton} onPress={() => onNavigate?.('ec-dashboard')}>
-          <FontAwesome5 name="users" size={24} color="#9CA3AF" />
-          <Text style={styles.navText}>Drivers</Text>
-        </TouchableOpacity>
+      <BottomNav
+  variant="emergency"
+  activeKey="notifications"
+  onNavigate={onNavigate}
+  notificationCount={pendingInviteCount}
+/>
 
-        <TouchableOpacity style={styles.navButton} onPress={() => onNavigate?.('ec-notifications')}>
-          <Feather name="bell" size={24} color="#1E3A8A" />
-          <Text style={[styles.navText, { color: '#1E3A8A' }]}>Notifications</Text>
-        </TouchableOpacity>
-
-        <TouchableOpacity style={styles.navButton} onPress={() => onNavigate?.('ec-settings')}>
-          <Feather name="settings" size={24} color="#9CA3AF" />
-          <Text style={styles.navText}>Settings</Text>
-        </TouchableOpacity>
-      </View>
     </View>
   );
 }

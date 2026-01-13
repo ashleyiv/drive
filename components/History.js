@@ -12,6 +12,7 @@ import {
 import Svg, { Path, Line, Circle, G, Rect } from 'react-native-svg';
 import { Feather, MaterialCommunityIcons } from '@expo/vector-icons';
 import { supabase } from '../lib/supabase';
+import BottomNav from './BottomNav';
 
 const LEVEL_UI = {
   1: { label: 'LEVEL 1 WARNING', color: '#16A34A', boxTitle: 'CAUTION', boxBg: '#ECFDF5', boxBorder: '#BBF7D0' },
@@ -257,13 +258,12 @@ useEffect(() => {
         </ScrollView>
       )}
 
-      {/* Bottom nav (keep your existing if different) */}
-      <View style={styles.bottomNav}>
-        <NavItem icon="home" label="Home" onPress={() => onNavigate?.('dashboard')} />
-        <NavItem icon="bookmark" label="History" active onPress={() => {}} />
-        <NavItem icon="users" label="Contacts" onPress={() => onNavigate?.('contacts')} />
-        <NavItem icon="user" label="Profile" onPress={() => onNavigate?.('menu')} />
-      </View>
+     {/* Bottom nav (centralized) */}
+<BottomNav
+  variant="driver"
+  activeKey="history"
+  onNavigate={onNavigate}
+/>
 
       {/* =========================
           DETAILS MODAL (fixes white screen)

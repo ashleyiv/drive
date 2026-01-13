@@ -16,7 +16,7 @@ import { Ionicons, Feather } from '@expo/vector-icons';
 import { supabase } from '../lib/supabase';
 import { cleanDialNumber, formatPHPretty } from '../lib/phonePH';
 import { getUsersAvatarUrls, resolveAvatarUrl } from '../lib/avatar';
-
+import BottomNav from './BottomNav';
 function buildFullName(first, last) {
   const f = String(first || '').trim();
   const l = String(last || '').trim();
@@ -523,14 +523,13 @@ export default function Contacts({ onNavigate }) {
         />
       )}
 
-      {/* Bottom nav */}
-      <View style={styles.bottomNav}>
-        <NavItem icon="home" label="Home" onPress={() => onNavigate('dashboard')} />
-        <NavItem icon="clock" label="History" onPress={() => onNavigate('history')} />
-        <NavItem icon="users" label="Contacts" onPress={() => onNavigate('contacts')} active />
-        {/* ✅ keep your route but label like screenshot */}
-        <NavItem icon="user" label="Profile" onPress={() => onNavigate('menu')} />
-      </View>
+     {/* Bottom nav (centralized) */}
+<BottomNav
+  variant="driver"
+  activeKey="contacts"
+  onNavigate={onNavigate}
+/>
+
 
       {/* Add Contact Modal */}
       <Modal visible={modalVisible} transparent animationType="fade">

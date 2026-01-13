@@ -22,6 +22,7 @@ import { supabase } from '../lib/supabase';
 import { getUserAvatarUrl, clearAvatarCache } from '../lib/avatar';
 import * as Location from 'expo-location';
 import { startDriverLocationStream, stopDriverLocationStream } from '../lib/driverStatus';
+import BottomNav from './BottomNav';
 function ModeSwitchOverlay({ visible, title, subtitle, stylesObj }) {
   const progress = useRef(new Animated.Value(0)).current;
   const loopRef = useRef(null);
@@ -797,13 +798,13 @@ async function stopLocationStreaming(subscription) {
         </View>
       </View>
 
-      {/* Bottom nav */}
-      <View style={s.bottomNav}>
-        <NavItem icon="home" label="Home" onPress={() => onNavigate('dashboard')} active />
-        <NavItem icon="clock" label="History" onPress={() => onNavigate('history')} />
-        <NavItem icon="users" label="Contacts" onPress={() => onNavigate('contacts')} />
-        <NavItem icon="menu" label="Menu" onPress={() => onNavigate('menu')} />
-      </View>
+     {/* Bottom nav (centralized) */}
+<BottomNav
+  variant="driver"
+  activeKey="home"
+  onNavigate={onNavigate}
+/>
+
 
       {/* Device modal (UNCHANGED logic, only kept as-is) */}
       <Modal visible={deviceModalVisible} transparent animationType="fade">

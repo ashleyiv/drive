@@ -3,6 +3,7 @@ import { View, Text, StyleSheet, TouchableOpacity, Alert } from 'react-native';
 import MapView, { Marker } from 'react-native-maps';
 import * as Location from 'expo-location';
 import { Ionicons, Feather } from '@expo/vector-icons';
+import BottomNav from './BottomNav';
 
 export default function LocationView({ onNavigate }) {
   const [currentLocation, setCurrentLocation] = useState(null);
@@ -68,13 +69,19 @@ export default function LocationView({ onNavigate }) {
       </View>
 
       {/* Bottom Navigation */}
-      <View style={styles.navbar}>
-        <NavItem icon="home" label="Home" onPress={() => onNavigate('dashboard')} />
-        <NavItem icon="clock" label="History" onPress={() => onNavigate('history')} />
-        <NavItem icon="map-pin" label="Location" onPress={() => onNavigate('location')} active />
-        <NavItem icon="users" label="Contacts" onPress={() => onNavigate('contacts')} />
-        <NavItem icon="menu" label="Menu" onPress={() => onNavigate('menu')} />
-      </View>
+    {/* Bottom nav (centralized, custom tabs) */}
+<BottomNav
+  activeKey="location"
+  onNavigate={onNavigate}
+  tabs={[
+    { key: 'home', label: 'Home', route: 'dashboard', icon: (c) => <Feather name="home" size={20} color={c} /> },
+    { key: 'history', label: 'History', route: 'history', icon: (c) => <Feather name="clock" size={20} color={c} /> },
+    { key: 'location', label: 'Location', route: 'location', icon: (c) => <Feather name="map-pin" size={20} color={c} /> },
+    { key: 'contacts', label: 'Contacts', route: 'contacts', icon: (c) => <Feather name="users" size={20} color={c} /> },
+    { key: 'menu', label: 'Menu', route: 'menu', icon: (c) => <Feather name="menu" size={20} color={c} /> },
+  ]}
+/>
+
     </View>
   );
 }
