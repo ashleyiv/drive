@@ -99,17 +99,30 @@ export default function EmergencyContactNotifications({ onNavigate }) {
           avatarMap?.[rid] ??
           resolveAvatarUrl(requesterProfile?.avatar_url) ??
           null;
+        const status = String(r.status || '').toLowerCase();
+
+        const message =
+          status === 'pending'
+            ? `${requesterName} wants to add you as an emergency contact`
+            : status === 'accepted'
+            ? `✓ You are now an emergency contact for ${requesterName}`
+            : status === 'declined'
+            ? `You declined ${requesterName}'s request`
+            : status === 'cancelled'
+            ? `${requesterName} disconnected you as an emergency contact`
+            : `${requesterName} request updated (${status})`;
 
         return {
           id: `invite-${r.id}`,
           requestRowId: r.id,
           requesterId: r.requester_id,
-          type: 'invite',
-          status: r.status,
-          message: `${requesterName} wants to add you as an emergency contact`,
+          type: status === 'cancelled' ? 'disconnect' : 'invite',
+          status,
+          message,
           timestamp: new Date(r.created_at).toLocaleString(),
-          avatarUri, // ✅ add
+          avatarUri,
         };
+
       });
 
       setInvites(mapped);
@@ -258,12 +271,18 @@ export default function EmergencyContactNotifications({ onNavigate }) {
               </View>
             )}
 
-            {item.type === 'invite' && item.status === 'accepted' && (
+                      {item.type === 'invite' && item.status === 'accepted' && (
               <Text style={styles.acceptedText}>✓ Accepted</Text>
             )}
             {item.type === 'invite' && item.status === 'declined' && (
               <Text style={styles.declinedText}>Declined</Text>
             )}
+            {item.status === 'cancelled' && (
+              <Text style={[styles.declinedText, { color: '#DC2626', fontWeight: '800' }]}>
+                Disconnected
+              </Text>
+            )}
+
           </View>
         </View>
       </View>

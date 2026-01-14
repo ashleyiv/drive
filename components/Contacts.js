@@ -395,18 +395,33 @@ export default function Contacts({ onNavigate }) {
         return;
       }
 
-      // ✅ safest delete: match by request row id AND requester_id
-      const { error } = await supabase
+         // ✅ IMPORTANT:
+      // We "disconnect" by setting status='cancelled' (so the other user can be notified).
+      // Also: use .select() so we can detect "0 rows affected" (common with RLS).
+      const { data: updatedRows, error } = await supabase
         .from('emergency_contact_requests')
-        .delete()
+        .update({ status: 'cancelled', responded_at: new Date().toISOString() })
         .eq('id', deleteTarget.id)
-        .eq('requester_id', me.id);
+        .eq('requester_id', me.id)
+        .select('id');
 
       if (error) throw error;
 
-      showToast('Contact deleted');
+      // ✅ If RLS blocked, PostgREST can return [] without error.
+      if (!updatedRows || updatedRows.length === 0) {
+        throw new Error('Disconnect failed (no rows updated). Check RLS policies for UPDATE.');
+      }
+
+      // ✅ Optimistic UI removal (so it disappears instantly even before reload)
+      setContactsAccepted((prev) => prev.filter((x) => String(x.id) !== String(deleteTarget.id)));
+      setContactsPending((prev) => prev.filter((x) => String(x.id) !== String(deleteTarget.id)));
+
+      showToast('Contact disconnected');
       closeDeleteModal();
+
+      // ✅ Reload from DB (source of truth)
       await loadMyContacts();
+
     } catch (e) {
       console.log('[Contacts] delete error:', e);
       showToast(e?.message || 'Failed to delete contact');

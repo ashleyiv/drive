@@ -12,7 +12,9 @@ import {
   Switch,
   Animated,
   Easing,
+  ScrollView,
 } from 'react-native';
+
 
 
 import { Ionicons, Feather, MaterialCommunityIcons } from '@expo/vector-icons';
@@ -23,6 +25,8 @@ import { getUserAvatarUrl, clearAvatarCache } from '../lib/avatar';
 import * as Location from 'expo-location';
 import { startDriverLocationStream, stopDriverLocationStream } from '../lib/driverStatus';
 import BottomNav from './BottomNav';
+import { usePendingInviteCount } from '../lib/usePendingInviteCount';
+
 function ModeSwitchOverlay({ visible, title, subtitle, stylesObj }) {
   const progress = useRef(new Animated.Value(0)).current;
   const loopRef = useRef(null);
@@ -78,6 +82,42 @@ function ModeSwitchOverlay({ visible, title, subtitle, stylesObj }) {
 
 export default function Dashboard({ onNavigate, onSwitchToEmergencyContact }) {
   const [showWarningDetails, setShowWarningDetails] = useState(false);
+    // ✅ Pending invites badge (for bell)
+  const { count: pendingInviteCount } = usePendingInviteCount({ enabled: true });
+
+  // ✅ Bell ringing animation (only when badge > 0)
+  const bellAnim = useRef(new Animated.Value(0)).current;
+
+  useEffect(() => {
+    let loop;
+    if (pendingInviteCount > 0) {
+      bellAnim.setValue(0);
+      loop = Animated.loop(
+        Animated.sequence([
+          Animated.timing(bellAnim, { toValue: 1, duration: 90, easing: Easing.linear, useNativeDriver: true }),
+          Animated.timing(bellAnim, { toValue: -1, duration: 90, easing: Easing.linear, useNativeDriver: true }),
+          Animated.timing(bellAnim, { toValue: 1, duration: 90, easing: Easing.linear, useNativeDriver: true }),
+          Animated.timing(bellAnim, { toValue: 0, duration: 90, easing: Easing.linear, useNativeDriver: true }),
+          Animated.delay(900),
+        ])
+      );
+      loop.start();
+    } else {
+      bellAnim.stopAnimation?.();
+      bellAnim.setValue(0);
+    }
+    return () => loop?.stop?.();
+  }, [pendingInviteCount, bellAnim]);
+
+  const bellRotate = bellAnim.interpolate({
+    inputRange: [-1, 1],
+    outputRange: ['-12deg', '12deg'],
+  });
+
+  // ✅ Notifications: accepted emergency contact requests (for the requester)
+  const [acceptedReqs, setAcceptedReqs] = useState([]);
+  const [loadingAcceptedReqs, setLoadingAcceptedReqs] = useState(false);
+
   // ✅ Mode indicator (shows for ~2.5s on screen entry)
 // ✅ Mode overlay shows ONLY when switching into Driver mode
 const [modeOverlayVisible, setModeOverlayVisible] = useState(false);
@@ -256,6 +296,98 @@ const locationSubRef = useRef(null);
       setScanState('found');
     }, 1600);
   };
+
+    useEffect(() => {
+    let mounted = true;
+    let channel;
+
+    const loadAccepted = async () => {
+      try {
+        setLoadingAcceptedReqs(true);
+
+        const { data: userRes } = await supabase.auth.getUser();
+        const me = userRes?.user;
+        if (!me?.id) {
+          if (mounted) setAcceptedReqs([]);
+          return;
+        }
+
+        // Get latest ACCEPTED requests where I am the requester
+        const { data: rows, error } = await supabase
+          .from('emergency_contact_requests')
+          .select('id, requester_id, target_id, status, created_at, responded_at')
+          .eq('requester_id', me.id)
+          .eq('status', 'accepted')
+          .order('responded_at', { ascending: false })
+          .limit(20);
+
+        if (error) throw error;
+
+        const accepted = rows || [];
+        const targetIds = [...new Set(accepted.map((r) => r.target_id).filter(Boolean))];
+
+        // Fetch names/avatars from user_profiles (best-effort)
+        let profilesById = {};
+        if (targetIds.length > 0) {
+          const { data: profs } = await supabase
+            .from('user_profiles')
+            .select('id, first_name, last_name, email, avatar_url')
+            .in('id', targetIds);
+
+          (profs || []).forEach((p) => {
+            profilesById[p.id] = p;
+          });
+        }
+
+        const mapped = accepted.map((r) => {
+          const p = profilesById[r.target_id];
+          const first = String(p?.first_name || '').trim();
+          const last = String(p?.last_name || '').trim();
+          const full = `${first}${first && last ? ' ' : ''}${last}`.trim();
+          const displayName = full || (p?.email ? p.email.split('@')[0] : 'Someone');
+
+          return {
+            id: r.id,
+            target_id: r.target_id,
+            displayName,
+            avatar_url: p?.avatar_url || null,
+            responded_at: r.responded_at || r.created_at,
+          };
+        });
+
+        if (mounted) setAcceptedReqs(mapped);
+      } catch (e) {
+        console.log('[Dashboard] loadAcceptedReqs error:', e);
+        if (mounted) setAcceptedReqs([]);
+      } finally {
+        if (mounted) setLoadingAcceptedReqs(false);
+      }
+    };
+
+    (async () => {
+      await loadAccepted();
+
+      const { data: userRes } = await supabase.auth.getUser();
+      const me = userRes?.user;
+      if (!me?.id) return;
+
+      // Realtime: any update/insert affecting my requester_id
+      channel = supabase
+        .channel(`accepted-reqs-${me.id}`)
+        .on(
+          'postgres_changes',
+          { event: '*', schema: 'public', table: 'emergency_contact_requests', filter: `requester_id=eq.${me.id}` },
+          () => loadAccepted()
+        )
+        .subscribe();
+    })();
+
+    return () => {
+      mounted = false;
+      if (channel) supabase.removeChannel(channel);
+    };
+  }, []);
+
   useEffect(() => {
     let mounted = true;
     let channel = null;
@@ -478,52 +610,53 @@ try {
     }, 1400);
   };
 
-  // Disconnect -> prompt reconnect
-  const disconnectDevice = () => {
-    setConnectedDevice(null);
-    setBatteryPercent(null);
-    setScanState('idle');
-    setSelectedDevice(null);
-    setAvailableDevices([]);
-Promise.resolve(stopDriverLocationStream(locationSubRef.current, { setMode: true }))
-  .catch((e) => console.log('[Dashboard] stopDriverLocationStream (disconnect) failed:', e))
-  .finally(() => {
-    locationSubRef.current = null;
-  });
+const performDisconnectAndCleanup = () => {
+  setConnectedDevice(null);
+  setBatteryPercent(null);
+  setScanState('idle');
+  setSelectedDevice(null);
+  setAvailableDevices([]);
+
+  Promise.resolve(stopDriverLocationStream(locationSubRef.current, { setMode: true }))
+    .catch((e) => console.log('[Dashboard] stopDriverLocationStream (disconnect) failed:', e))
+    .finally(() => {
+      locationSubRef.current = null;
+    });
+
+  DeviceSession.clearConnection();
+};
+
+const disconnectDevice = () => {
+  // ✅ Only ask first. Do NOT disconnect yet.
+  closeDeviceModal();
+  setShowReconnectPrompt(true);
+};
 
 
-    DeviceSession.clearConnection();
+// YES = confirm disconnect + go EmergencyDashboard
+const handleReconnectYes = async () => {
+  setShowReconnectPrompt(false);
 
-    closeDeviceModal();
-    setShowReconnectPrompt(true);
-  };
+  // actually disconnect now
+  performDisconnectAndCleanup();
 
-  // Reconnect YES: reopen modal + scan
-  const handleReconnectYes = () => {
-    setShowReconnectPrompt(false);
-    openDeviceModal();
-    startScan();
-  };
+  // optional: clear last paired so it won't auto-restore
+  await clearLastPairedFromSupabaseMetadata();
 
-  // Reconnect NO: clear remembered device + go back EmergencyContactDashboard
-  const handleReconnectNo = async () => {
-    setShowReconnectPrompt(false);
+  if (onSwitchToEmergencyContact) {
+    onSwitchToEmergencyContact();
+    return;
+  }
+  onNavigate?.('ec-dashboard');
+};
 
-    // user said "No" => don't auto-connect again next time
-    await clearLastPairedFromSupabaseMetadata();
-if (onSwitchToEmergencyContact) {
- onSwitchToEmergencyContact();
-return;
-  return;
-}
+// NO = don't disconnect; reopen scan again to reconnect
+const handleReconnectNo = () => {
+  setShowReconnectPrompt(false);
+  openDeviceModal();
+  startScan();
+};
 
-
-    Alert.alert(
-      'Switch mode missing',
-      'onSwitchToEmergencyContact was not passed to Dashboard. Add it in App.js so this redirect works correctly.'
-    );
-    onNavigate?.('ec-dashboard');
-  };
 
 useEffect(() => {
   return () => {
@@ -573,16 +706,66 @@ useEffect(() => {
     return 'User';
   }, [myFirstName, myLastName, myEmail]);
 
-  if (showNotifications) {
-    return (
-      <View style={s.center}>
-        <Text>Notifications Panel</Text>
+ if (showNotifications) {
+  return (
+    <View style={[s.screen, { paddingTop: 50 }]}>
+      <View style={{ paddingHorizontal: 18, paddingBottom: 10, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
+        <Text style={{ fontSize: 18, fontWeight: '900', color: '#111827' }}>Notifications</Text>
         <TouchableOpacity onPress={() => setShowNotifications(false)}>
-          <Text style={{ marginTop: 20, color: '#1E88E5' }}>Go Back</Text>
+          <Text style={{ color: '#1E88E5', fontWeight: '800' }}>Back</Text>
         </TouchableOpacity>
       </View>
-    );
-  }
+
+      <ScrollView contentContainerStyle={{ paddingHorizontal: 18, paddingBottom: 18 }}>
+        <View style={{ padding: 14, borderRadius: 14, backgroundColor: '#F3F4F6', marginBottom: 12 }}>
+          <Text style={{ fontWeight: '900', color: '#111827' }}>Pending requests</Text>
+          <Text style={{ marginTop: 4, color: '#6B7280', fontWeight: '700' }}>
+            You have {pendingInviteCount} pending emergency contact request{pendingInviteCount === 1 ? '' : 's'}.
+          </Text>
+        </View>
+
+        <Text style={{ fontSize: 14, fontWeight: '900', color: '#111827', marginBottom: 10 }}>
+          Accepted requests
+        </Text>
+
+        {loadingAcceptedReqs ? (
+          <View style={{ paddingVertical: 20, alignItems: 'center' }}>
+            <ActivityIndicator />
+            <Text style={{ marginTop: 8, color: '#6B7280', fontWeight: '700' }}>Fetching…</Text>
+          </View>
+        ) : acceptedReqs.length === 0 ? (
+          <View style={{ paddingVertical: 20 }}>
+            <Text style={{ color: '#6B7280', fontWeight: '700' }}>
+              No accepted requests yet.
+            </Text>
+          </View>
+        ) : (
+          acceptedReqs.map((n) => (
+            <View
+              key={n.id}
+              style={{
+                backgroundColor: 'white',
+                borderRadius: 14,
+                borderWidth: 1,
+                borderColor: '#E5E7EB',
+                padding: 14,
+                marginBottom: 10,
+              }}
+            >
+              <Text style={{ color: '#111827', fontWeight: '900' }}>
+                {n.displayName} accepted your request to be your emergency contact.
+              </Text>
+              <Text style={{ marginTop: 6, color: '#6B7280', fontWeight: '700', fontSize: 12 }}>
+                {n.responded_at ? new Date(n.responded_at).toLocaleString() : ''}
+              </Text>
+            </View>
+          ))
+        )}
+      </ScrollView>
+    </View>
+  );
+}
+
 
   if (showWarningDetails) {
     return (
@@ -687,9 +870,22 @@ async function stopLocationStreaming(subscription) {
 
         <Text style={s.headerTitle}>D.R.I.V.E.</Text>
 
-        <TouchableOpacity onPress={() => setShowNotifications(true)} style={s.headerBell}>
-          <Feather name="bell" size={22} color="#fff" />
-        </TouchableOpacity>
+       <TouchableOpacity onPress={() => setShowNotifications(true)} style={s.headerBell}>
+  <View style={{ position: 'relative' }}>
+    <Animated.View style={{ transform: [{ rotate: bellRotate }] }}>
+      <Feather name="bell" size={22} color="#fff" />
+    </Animated.View>
+
+    {pendingInviteCount > 0 && (
+      <View style={s.bellBadge}>
+        <Text style={s.bellBadgeText}>
+          {pendingInviteCount > 99 ? '99+' : String(pendingInviteCount)}
+        </Text>
+      </View>
+    )}
+  </View>
+</TouchableOpacity>
+
       </View>
 
       {/* Content */}
@@ -987,26 +1183,27 @@ async function stopLocationStreaming(subscription) {
       <Modal transparent visible={showReconnectPrompt} animationType="fade">
         <View style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.4)', justifyContent: 'center', alignItems: 'center', paddingHorizontal: 20 }}>
           <View style={{ width: '100%', backgroundColor: 'white', borderRadius: 16, padding: 18 }}>
-            <Text style={{ fontSize: 16, fontWeight: '800', color: '#111827', marginBottom: 8 }}>
-              Reconnect?
-            </Text>
-            <Text style={{ fontSize: 13, color: '#6B7280', marginBottom: 16, lineHeight: 18 }}>
-              Device disconnected. Do you want to reconnect to D.R.I.V.E?
-            </Text>
+          <Text style={{ fontSize: 16, fontWeight: '800', color: '#111827', marginBottom: 8 }}>
+  Disconnect?
+</Text>
+<Text style={{ fontSize: 13, color: '#6B7280', marginBottom: 16, lineHeight: 18 }}>
+  Are you sure you want to disconnect from D.R.I.V.E.?
+</Text>
+
 
             <View style={{ flexDirection: 'row', justifyContent: 'flex-end' }}>
               <Pressable
                 onPress={handleReconnectNo}
                 style={{ paddingVertical: 10, paddingHorizontal: 14, borderRadius: 10, backgroundColor: '#E5E7EB', marginRight: 10 }}
               >
-                <Text style={{ color: '#111827', fontWeight: '700' }}>No</Text>
+                 <Text style={{ color: '#111827', fontWeight: '700' }}>No, reconnect</Text>
               </Pressable>
 
               <Pressable
                 onPress={handleReconnectYes}
                 style={{ paddingVertical: 10, paddingHorizontal: 14, borderRadius: 10, backgroundColor: '#1E3A8A' }}
               >
-                <Text style={{ color: 'white', fontWeight: '800' }}>Yes</Text>
+                 <Text style={{ color: 'white', fontWeight: '800' }}>Yes, disconnect</Text>
               </Pressable>
             </View>
           </View>
@@ -1084,6 +1281,25 @@ const s = {
     height: 8,
     backgroundColor: '#2563EB',
     borderRadius: 999,
+  },
+  bellBadge: {
+    position: 'absolute',
+    top: -6,
+    right: -10,
+    minWidth: 18,
+    height: 18,
+    borderRadius: 9,
+    backgroundColor: '#EF4444',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 5,
+    borderWidth: 2,
+    borderColor: '#1E88E5',
+  },
+  bellBadgeText: {
+    color: 'white',
+    fontSize: 10,
+    fontWeight: '900',
   },
 
   header: {

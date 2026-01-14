@@ -152,7 +152,12 @@ function timeAgoText(iso) {
   const day = Math.floor(hr / 24);
   return `${day} day${day === 1 ? '' : 's'} ago`;
 }
-
+function speedTextFromMps(mps) {
+  if (typeof mps !== 'number' || !Number.isFinite(mps)) return null;
+  // m/s → km/h
+  const kph = mps * 3.6;
+  return `${kph.toFixed(1)} kph`;
+}
 // ✅ Try to extract a speed label from meta.
 // You can store any of these keys: speed_mph, top_speed_mph, speed_kph, top_speed_kph, speed
 function speedTextFromMeta(meta) {
@@ -320,9 +325,20 @@ return {
     ? new Date(row.last_location_at).toLocaleString()
     : d.lastUpdate,
 
+  // ✅ speed updates live too
+  lastSpeedMps:
+    typeof row.last_speed_mps === 'number' && Number.isFinite(row.last_speed_mps)
+      ? row.last_speed_mps
+      : d.lastSpeedMps ?? null,
+  lastSpeedText:
+    typeof row.last_speed_mps === 'number' && Number.isFinite(row.last_speed_mps)
+      ? speedTextFromMps(row.last_speed_mps)
+      : d.lastSpeedText ?? null,
+
   // no history: keep only latest point
   route: [coords],
 };
+
 
             })
           );
@@ -573,7 +589,7 @@ useEffect(() => {
 
       const { data: statuses, error: stErr } = await supabase
         .from('driver_status')
-        .select('user_id, mode, last_lat, last_lng, last_location_at')
+.select('user_id, mode, last_lat, last_lng, last_location_at, last_speed_mps')
         .in('user_id', driverIds);
 
       if (stErr) throw stErr;
@@ -651,6 +667,15 @@ const live = mode === 'driver' && isFreshLocation(st?.last_location_at);
 
   // ✅ keep raw timestamp for staleness logic
   lastLocationAt: st?.last_location_at ?? null,
+  // ✅ speed from driver_status
+  lastSpeedMps: typeof st?.last_speed_mps === 'number' && Number.isFinite(st.last_speed_mps)
+    ? st.last_speed_mps
+    : null,
+  lastSpeedText: speedTextFromMps(
+    typeof st?.last_speed_mps === 'number' && Number.isFinite(st.last_speed_mps)
+      ? st.last_speed_mps
+      : NaN
+  ),
 
   // existing fields
   warningLevel: warn?.level ?? null,
@@ -774,7 +799,10 @@ useEffect(() => {
     bigMapDriver?.avatarUri ||
     null;
 
-  const bigMapSpeedText = bigMapDriver?.warningSpeedText || '—';
+  const bigMapSpeedText =
+  bigMapDriver?.lastSpeedText ||
+  bigMapDriver?.warningSpeedText ||
+  '—';
   const bigMapLocationText =
     bigMapDriver?.warningLocationText ||
     bigMapDriver?.lastLocation ||
