@@ -127,6 +127,34 @@ function displayNameFromProfile(p) {
 // ✅ Staleness rule: LIVE only if location is fresh (90 seconds)
 const STALE_THRESHOLD_MS = 90 * 1000;
 
+// ✅ Warning should show ONLY if fresh (acts like "live" warning from IoT)
+const WARNING_STALE_THRESHOLD_MS = 90 * 1000;
+
+function isFreshWarning(iso) {
+  if (!iso) return false;
+  const t = new Date(iso).getTime();
+  if (!Number.isFinite(t)) return false;
+  return Date.now() - t <= WARNING_STALE_THRESHOLD_MS;
+}
+
+// ✅ Level palette + label (UI only)
+function warningLabel(level) {
+  if (level === 3) return 'LEVEL 3 WARNING';
+  if (level === 2) return 'LEVEL 2 WARNING';
+  if (level === 1) return 'LEVEL 1 WARNING';
+  return null;
+}
+
+function warningPalette(level) {
+  // Returns { text, bg, border } for badges/panels
+  if (level === 3) return { text: '#DC2626', bg: '#FEE2E2', border: '#FCA5A5' }; // red
+  if (level === 2) return { text: '#EA580C', bg: '#FFEDD5', border: '#FDBA74' }; // orange
+  if (level === 1) return { text: '#16A34A', bg: '#DCFCE7', border: '#86EFAC' }; // green
+  // safe / no warning (neutral/green-ish)
+  return { text: '#16A34A', bg: '#DCFCE7', border: '#86EFAC' };
+}
+
+
 function isFreshLocation(iso) {
   if (!iso) return false;
   const t = new Date(iso).getTime();
@@ -610,16 +638,19 @@ useEffect(() => {
               .limit(1);
 
             const row = (w || [])[0];
-            if (row?.level) {
-              warningById[uid] = {
-                level: row.level,
-                created_at: row.created_at,
-                monitor_type: row.monitor_type ?? null,
-                location_text: row.location_text ?? null,
-                snapshot_url: row.snapshot_url ?? null,
-                meta: row.meta ?? null,
-              };
-            }
+
+// ✅ Only show warning if it's fresh (so no IoT data = no warning UI)
+if (row?.level && isFreshWarning(row.created_at)) {
+  warningById[uid] = {
+    level: row.level,
+    created_at: row.created_at,
+    monitor_type: row.monitor_type ?? null,
+    location_text: row.location_text ?? null,
+    snapshot_url: row.snapshot_url ?? null,
+    meta: row.meta ?? null,
+  };
+}
+
           } catch {}
         })
       );
@@ -893,40 +924,52 @@ useEffect(() => {
           </View>
 
           <View style={{ flex: 1 }}>
-            <View style={styles.driverHeader}>
-              <Text style={styles.driverName}>{driver.name}</Text>
+           <View style={styles.driverHeader}>
+  <Text style={styles.driverName}>{driver.name}</Text>
 
-              <View
-                style={[
-                  styles.modeBadge,
-                  { backgroundColor: isDriving ? '#DBEAFE' : '#E5E7EB' },
-                ]}
-              >
-                <Text
-                  style={[
-                    styles.modeText,
-                    { color: isDriving ? '#1E40AF' : '#374151' },
-                  ]}
-                >
-                  {isDriving ? 'DRIVING' : 'NOT DRIVING'}
-                </Text>
-              </View>
-            </View>
+  {/* ✅ Right-side badges row */}
+  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+    <View
+      style={[
+        styles.modeBadge,
+        { backgroundColor: isDriving ? '#DBEAFE' : '#E5E7EB' },
+      ]}
+    >
+      <Text
+        style={[
+          styles.modeText,
+          { color: isDriving ? '#1E40AF' : '#374151' },
+        ]}
+      >
+        {isDriving ? 'DRIVING' : 'NOT DRIVING'}
+      </Text>
+    </View>
 
-            {hasWarning && (
-              <View style={{ marginTop: 6, alignSelf: 'flex-start' }}>
-                <View
-                  style={[
-                    styles.statusBadge,
-                    { backgroundColor: getStatusColor(driver.status) },
-                  ]}
-                >
-                  <Text style={styles.statusText}>
-                    LEVEL {driver.warningLevel} WARNING
-                  </Text>
-                </View>
-              </View>
-            )}
+    {/* ✅ Warning badge beside driving badge (only if fresh warning exists) */}
+    {hasWarning && (
+      <View
+        style={[
+          styles.modeBadge,
+          {
+            backgroundColor: warningPalette(driver.warningLevel).bg,
+            borderWidth: 1,
+            borderColor: warningPalette(driver.warningLevel).border,
+          },
+        ]}
+      >
+        <Text
+          style={[
+            styles.modeText,
+            { color: warningPalette(driver.warningLevel).text },
+          ]}
+        >
+          {warningLabel(driver.warningLevel)}
+        </Text>
+      </View>
+    )}
+  </View>
+</View>
+
 
             {!isDriving && (
               <Text style={styles.notDrivingText}>
@@ -1072,9 +1115,16 @@ useEffect(() => {
               <View style={{ marginHorizontal: 14, backgroundColor: '#fff', borderRadius: 14, padding: 12, borderWidth: 1, borderColor: '#E5E7EB' }}>
                 {/* Level + time ago */}
                 <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
-                  <Text style={{ color: '#DC2626', fontWeight: '900', fontSize: 12 }}>
-                    {bigMapDriver?.warningLevel ? `LEVEL ${bigMapDriver.warningLevel} WARNING` : 'NO WARNING'}
-                  </Text>
+                 <Text
+  style={{
+    color: warningPalette(bigMapDriver?.warningLevel ?? null).text,
+    fontWeight: '900',
+    fontSize: 12,
+  }}
+>
+  {bigMapDriver?.warningLevel ? warningLabel(bigMapDriver.warningLevel) : 'NO WARNING'}
+</Text>
+
                   <Text style={{ color: '#9CA3AF', fontWeight: '800', fontSize: 11 }}>
                     {bigMapDriver?.warningCreatedAt ? timeAgoText(bigMapDriver.warningCreatedAt) : '—'}
                   </Text>
@@ -1090,18 +1140,46 @@ useEffect(() => {
                 </View>
 
                 {/* Danger box */}
-                <View style={{ marginTop: 12, borderRadius: 14, padding: 12, backgroundColor: '#FEE2E2' }}>
-                  <Text style={{ color: '#DC2626', fontWeight: '900', fontSize: 12 }}>
-                    {bigMapDriver?.status === 'danger' ? 'DANGER' : bigMapDriver?.status === 'warning' ? 'WARNING' : 'SAFE'}
-                  </Text>
+                <View
+  style={{
+    marginTop: 12,
+    borderRadius: 14,
+    padding: 12,
+    backgroundColor: warningPalette(bigMapDriver?.warningLevel ?? null).bg,
+    borderWidth: 1,
+    borderColor: warningPalette(bigMapDriver?.warningLevel ?? null).border,
+  }}
+>
+  <Text
+    style={{
+      color: warningPalette(bigMapDriver?.warningLevel ?? null).text,
+      fontWeight: '900',
+      fontSize: 12,
+    }}
+  >
+    {bigMapDriver?.warningLevel
+      ? (bigMapDriver.warningLevel === 3 ? 'DANGER' : 'WARNING')
+      : 'SAFE'}
+  </Text>
 
-                  <Text style={{ marginTop: 4, color: '#7F1D1D', fontWeight: '800', fontSize: 12, lineHeight: 16 }}>
-                    {bigMapDriver?.status === 'danger'
-                      ? 'Immediate attention required. (High risk)'
-                      : bigMapDriver?.status === 'warning'
-                      ? 'Driver may need attention.'
-                      : 'No risk detected.'}
-                  </Text>
+  <Text
+    style={{
+      marginTop: 4,
+      color: '#374151',
+      fontWeight: '800',
+      fontSize: 12,
+      lineHeight: 16,
+    }}
+  >
+    {bigMapDriver?.warningLevel === 3
+      ? 'Immediate attention required. (High risk)'
+      : bigMapDriver?.warningLevel === 2
+      ? 'Driver may be drowsy.'
+      : bigMapDriver?.warningLevel === 1
+      ? 'Driver shows moderate drowsiness signs.'
+      : 'No risk detected.'}
+  </Text>
+
 
                   <Text style={{ marginTop: 8, color: '#7F1D1D', fontWeight: '800', fontSize: 12 }}>
                     Top Speed: {bigMapSpeedText}
