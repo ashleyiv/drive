@@ -488,12 +488,25 @@ useEffect(() => {
     setScanState('pairing');
 
     setTimeout(async () => {
-      DeviceSession.set({
-        scanState: 'connected',
-        connectedDevice: selectedDevice,
-        batteryPercent: 95,
-        lastPairedDevice: selectedDevice,
-      });
+      // ✅ preserve existing connectedAt if already set, else create it
+const prev = DeviceSession.get?.() || {};
+const prevMs =
+  typeof prev.connectedAt === 'number'
+    ? prev.connectedAt
+    : prev.connectedAt
+    ? Date.parse(prev.connectedAt)
+    : null;
+
+const connectedAtMs = Number.isFinite(prevMs) ? prevMs : Date.now();
+
+DeviceSession.set({
+  scanState: 'connected',
+  connectedDevice: selectedDevice,
+  batteryPercent: 95,
+  lastPairedDevice: selectedDevice,
+  connectedAt: connectedAtMs, // ✅ NEW
+});
+
 
       await saveLastPairedToSupabaseMetadata(selectedDevice);
 
@@ -536,10 +549,16 @@ useEffect(() => {
         }
 
         const s = DeviceSession.get?.();
-        if (s?.connectedDevice?.id === lastId && s?.scanState === 'connected') {
-          onSwitchToDriver?.();
-          return;
-        }
+
+// ✅ If already connected, ensure connectedAt exists so Driver can show duration
+if (s?.connectedDevice?.id === lastId && s?.scanState === 'connected') {
+  if (!s?.connectedAt) {
+    DeviceSession.set?.({ connectedAt: Date.now() });
+  }
+  onSwitchToDriver?.();
+  return;
+}
+
 
         const found = demoDevices.find((d) => d.id === lastId) || null;
         if (!found) return;

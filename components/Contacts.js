@@ -343,19 +343,36 @@ export default function Contacts({ onNavigate }) {
       if (!me?.id) return showToast('Not logged in');
       if (String(targetUserId) === String(me.id)) return showToast("You can't invite yourself");
 
-      const { error } = await supabase.from('emergency_contact_requests').insert({
-        requester_id: me.id,
-        target_id: targetUserId,
-        status: 'pending',
-      });
+      const nowIso = new Date().toISOString();
 
-      if (error) {
-        if (String(error.message || '').toLowerCase().includes('duplicate')) {
-          showToast('Invite already sent');
-          return;
-        }
-        throw error;
-      }
+// ✅ Upsert so "cancelled/declined" can be re-invited
+// Requires UNIQUE constraint on (requester_id, target_id)
+const { data: upserted, error } = await supabase
+  .from('emergency_contact_requests')
+  .upsert(
+    {
+      requester_id: me.id,
+      target_id: targetUserId,
+      status: 'pending',
+      responded_at: null,
+
+      // ✅ optional but recommended: make it look like a NEW invite
+      // so it appears at top because you order by created_at
+      created_at: nowIso,
+    },
+    { onConflict: 'requester_id,target_id' }
+  )
+  .select('id,status')
+  .maybeSingle();
+
+if (error) throw error;
+
+showToast('Invite sent');
+await loadMyContacts();
+
+// ✅ update modal live filtering immediately
+setResults((prev) => prev.filter((x) => String(x.id) !== String(targetUserId)));
+
 
       showToast('Invite sent');
       await loadMyContacts();

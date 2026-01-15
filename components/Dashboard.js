@@ -149,6 +149,33 @@ useEffect(() => {
   const [batteryPercent, setBatteryPercent] = useState(null);
   const batteryTimerRef = useRef(null);
 const locationSubRef = useRef(null);
+// ✅ NEW: track how long we've been connected to IoT (demo bluetooth)
+const [connectedAt, setConnectedAt] = useState(null); // number (ms since epoch)
+
+// ✅ NEW: live "connected duration" label (updates every minute)
+const [connectedDurationLabel, setConnectedDurationLabel] = useState('');
+
+// ✅ NEW: helper to format duration as "Xh Ym" (or "Ym")
+const formatConnectedDuration = (startMs) => {
+  if (!startMs) return '';
+
+  const diffMs = Math.max(0, Date.now() - startMs);
+  const totalSec = Math.floor(diffMs / 1000);
+
+  const h = Math.floor(totalSec / 3600);
+  const remSecAfterHours = totalSec % 3600;
+
+  const m = Math.floor(remSecAfterHours / 60);
+  const s = remSecAfterHours % 60;
+
+  // ✅ < 1 hour → MMm SSs
+  if (h <= 0) {
+    return `${String(m).padStart(2, '0')}m ${String(s).padStart(2, '0')}s`;
+  }
+
+  // ✅ >= 1 hour → Hh MMm
+  return `${h}h ${String(m).padStart(2, '0')}m`;
+};
 
   // Demo Bluetooth ON/OFF (KEEP state + logic, just hide toggle UI)
   const [bluetoothEnabled, setBluetoothEnabled] = useState(
@@ -195,32 +222,24 @@ const locationSubRef = useRef(null);
     return `${mm}-${dd}-${yyyy}`;
   };
 
-    const currentAlert = useMemo(() => {
-    // fallback (if no DB data yet)
-    const fallback = {
-      level: 'level3',
-      status: 'EXTREMELY DROWSY',
-      color: '#EF4444',
-      timestamp: '9:35 PM',
-      date: '12-15-2025',
-      snapshot_url: null,
-    };
+const currentAlert = useMemo(() => {
+  // ✅ No DB data -> return null so UI can show placeholder
+  if (!latestWarning) return null;
 
-    if (!latestWarning) return fallback;
+  const levelKey = levelNumToKey(latestWarning.level);
+  const status = statusFromLevel(latestWarning.level);
+  const color = levelKey === 'level1' ? '#10B981' : levelKey === 'level2' ? '#F59E0B' : '#EF4444';
 
-    const levelKey = levelNumToKey(latestWarning.level);
-    const status = statusFromLevel(latestWarning.level);
-    const color = levelKey === 'level1' ? '#10B981' : levelKey === 'level2' ? '#F59E0B' : '#EF4444';
+  return {
+    level: levelKey,
+    status,
+    color,
+    timestamp: fmtTime(latestWarning.created_at),
+    date: fmtDate(latestWarning.created_at),
+    snapshot_url: latestWarning.snapshot_url || null,
+  };
+}, [latestWarning]);
 
-    return {
-      level: levelKey,
-      status,
-      color,
-      timestamp: fmtTime(latestWarning.created_at),
-      date: fmtDate(latestWarning.created_at),
-      snapshot_url: latestWarning.snapshot_url || null,
-    };
-  }, [latestWarning]);
 
 
   const getLevelText = (level) => {
@@ -520,27 +539,74 @@ const locationSubRef = useRef(null);
       mounted = false;
     };
   }, []);
-
-  // Restore connection state when arriving from Emergency Contact pairing
-  useEffect(() => {
-    const s = DeviceSession.get();
-    if (s?.connectedDevice) {
-      setConnectedDevice(s.connectedDevice);
-      setBatteryPercent(s.batteryPercent ?? 95);
-      setScanState(s.scanState ?? 'connected');
-      // ✅ if we restored a connected session, ensure streaming is running
-(async () => {
-  try {
-    if (!locationSubRef.current) {
-      locationSubRef.current = await startDriverLocationStream();
-    }
-  } catch (e) {
-    console.log('[Dashboard] restore startDriverLocationStream failed:', e);
+// ✅ NEW: update connected duration label every minute while connected
+useEffect(() => {
+  if (!(scanState === 'connected' && connectedDevice && connectedAt)) {
+    setConnectedDurationLabel('');
+    return;
   }
-})();
 
+  const update = () => setConnectedDurationLabel(formatConnectedDuration(connectedAt));
+
+  // ✅ update immediately
+  update();
+
+  // ✅ choose interval based on elapsed time:
+  // <1h → show seconds so refresh every 1s
+  // >=1h → show minutes only so refresh every 60s
+  const elapsedMs = Math.max(0, Date.now() - connectedAt);
+  const intervalMs = elapsedMs < 3600 * 1000 ? 1000 : 60000;
+
+  const t = setInterval(update, intervalMs);
+  return () => clearInterval(t);
+}, [scanState, connectedDevice, connectedAt]);
+// ✅ Safety net: if we are connected but connectedAt is missing, recover from DeviceSession or set now
+useEffect(() => {
+  if (scanState === 'connected' && connectedDevice && !connectedAt) {
+    const s = DeviceSession.get?.() || {};
+    const ms =
+      typeof s.connectedAt === 'number'
+        ? s.connectedAt
+        : s.connectedAt
+        ? Date.parse(s.connectedAt)
+        : null;
+
+    if (Number.isFinite(ms)) {
+      setConnectedAt(ms);
+    } else {
+      const now = Date.now();
+      setConnectedAt(now);
+      DeviceSession.set?.({ connectedAt: now });
     }
-  }, []);
+  }
+}, [scanState, connectedDevice, connectedAt]);
+
+ useEffect(() => {
+  const s = DeviceSession.get();
+  if (s?.connectedDevice) {
+    setConnectedDevice(s.connectedDevice);
+    setBatteryPercent(s.batteryPercent ?? 95);
+    setScanState(s.scanState ?? 'connected');
+
+    // ✅ NEW: restore connectedAt (best effort)
+    if (s?.connectedAt) {
+      const ms = typeof s.connectedAt === 'number' ? s.connectedAt : Date.parse(s.connectedAt);
+      if (!Number.isNaN(ms)) setConnectedAt(ms);
+    }
+
+    // ✅ if we restored a connected session, ensure streaming is running
+    (async () => {
+      try {
+        if (!locationSubRef.current) {
+          locationSubRef.current = await startDriverLocationStream();
+        }
+      } catch (e) {
+        console.log('[Dashboard] restore startDriverLocationStream failed:', e);
+      }
+    })();
+  }
+}, []);
+
   // ✅ ADD ONLY: safety net - ensure stream is running when connected (any path)
 useEffect(() => {
   let cancelled = false;
@@ -584,16 +650,22 @@ useEffect(() => {
     setScanState('pairing');
 
     setTimeout(async () => {
-      setConnectedDevice(selectedDevice);
-      setScanState('connected');
-      setBatteryPercent(95);
+     setConnectedDevice(selectedDevice);
+setScanState('connected');
+setBatteryPercent(95);
 
-      DeviceSession.set({
-        scanState: 'connected',
-        connectedDevice: selectedDevice,
-        batteryPercent: 95,
-        lastPairedDevice: selectedDevice,
-      });
+// ✅ NEW: mark time connected
+const nowMs = Date.now();
+setConnectedAt(nowMs);
+
+DeviceSession.set({
+  scanState: 'connected',
+  connectedDevice: selectedDevice,
+  batteryPercent: 95,
+  lastPairedDevice: selectedDevice,
+  connectedAt: nowMs, // ✅ NEW
+});
+
 
       await saveLastPairedToSupabaseMetadata(selectedDevice);
 try {
@@ -616,6 +688,9 @@ const performDisconnectAndCleanup = () => {
   setScanState('idle');
   setSelectedDevice(null);
   setAvailableDevices([]);
+setConnectedAt(null);
+setConnectedDurationLabel('');
+DeviceSession.set?.({ connectedAt: null });
 
   Promise.resolve(stopDriverLocationStream(locationSubRef.current, { setMode: true }))
     .catch((e) => console.log('[Dashboard] stopDriverLocationStream (disconnect) failed:', e))
@@ -922,33 +997,54 @@ async function stopLocationStreaming(subscription) {
 
           activeOpacity={0.85}
           style={s.activityCard}
-        >
-                  <View style={s.activityThumb}>
-            {loadingLatestWarning ? (
-              <ActivityIndicator />
-            ) : currentAlert.snapshot_url ? (
-              <Image source={{ uri: currentAlert.snapshot_url }} style={{ width: '100%', height: '100%' }} />
-            ) : (
-              <Ionicons name="car" size={30} color="#9CA3AF" />
-            )}
-          </View>
+        ><View style={s.activityThumb}>
+  {loadingLatestWarning ? (
+    <ActivityIndicator />
+  ) : currentAlert?.snapshot_url ? (
+    <Image source={{ uri: currentAlert.snapshot_url }} style={{ width: '100%', height: '100%' }} />
+  ) : (
+    <Ionicons name={currentAlert ? "warning" : "time-outline"} size={30} color="#9CA3AF" />
+  )}
+</View>
 
+<View style={{ flex: 1 }}>
+  {loadingLatestWarning ? (
+    <>
+      <Text style={[s.activityLevel, { color: '#6B7280' }]}>Fetching latest activity…</Text>
+      <Text style={[s.activityTime, { marginTop: 6 }]}>Please wait.</Text>
+    </>
+  ) : currentAlert ? (
+    <>
+      <Text style={[s.activityLevel, { color: currentAlert.color }]}>
+        {getLevelText(currentAlert.level)}
+      </Text>
 
-          <View style={{ flex: 1 }}>
-            <Text style={[s.activityLevel, { color: currentAlert.color }]}>
-  {getLevelText(currentAlert.level)}
-</Text>
+      <Text style={[s.activityStatus, { color: currentAlert.color }]}>
+        {currentAlert.status}
+      </Text>
 
-         <Text style={[s.activityStatus, { color: currentAlert.color }]}>
-  {currentAlert.status}
-</Text>
+      <Text style={s.activityTime}>
+        {currentAlert.date} {currentAlert.timestamp}
+      </Text>
+    </>
+  ) : (
+    <>
+      <Text style={[s.activityLevel, { color: '#111827' }]}>
+        No data to show
+      </Text>
+      <Text style={[s.activityTime, { marginTop: 6 }]}>
+        This is where your recent activity will appear.
+      </Text>
+    </>
+  )}
+</View>
 
-            <Text style={s.activityTime}>
-              {currentAlert.date} {currentAlert.timestamp}
-            </Text>
-          </View>
+<Ionicons
+  name={currentAlert ? "warning" : "information-circle-outline"}
+  size={26}
+  color={currentAlert ? currentAlert.color : '#9CA3AF'}
+/>
 
-        <Ionicons name="warning" size={26} color={currentAlert.color} />
 
         </TouchableOpacity>
 
@@ -975,7 +1071,10 @@ async function stopLocationStreaming(subscription) {
               <Text style={s.deviceSub}>{connectedDevice ? 'Device On' : 'Find device'}</Text>
             </View>
 
-            <Text style={s.deviceTime}>{connectedDevice ? '3m' : ''}</Text>
+            <Text style={s.deviceTime}>
+  {connectedDevice ? (connectedDurationLabel || '0m') : ''}
+</Text>
+
           </TouchableOpacity>
 
           <View style={s.deviceCard}>
@@ -1029,6 +1128,9 @@ async function stopLocationStreaming(subscription) {
                     <View>
                       <Text style={{ fontWeight: '800', color: '#111827' }}>{connectedDevice.name}</Text>
                       <Text style={{ color: '#6B7280', fontSize: 12 }}>Connected • RSSI {connectedDevice.rssi}</Text>
+                      <Text style={{ color: '#6B7280', fontSize: 12, marginTop: 2 }}>
+  Connected for: {connectedDurationLabel || '0m'}
+</Text>
                     </View>
                   </View>
 
@@ -1037,6 +1139,7 @@ async function stopLocationStreaming(subscription) {
                       {batteryPercent == null ? '—' : `${batteryPercent}%`}
                     </Text>
                     <Text style={{ color: '#6B7280', fontSize: 12 }}>Battery</Text>
+                    
                   </View>
                 </View>
 
