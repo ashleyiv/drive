@@ -8,6 +8,8 @@ import {
   StyleSheet,
   Modal,
   Pressable,
+  findNodeHandle,
+  UIManager,
   ActivityIndicator,
   Alert,
   Image,
@@ -22,6 +24,11 @@ import { supabase } from '../lib/supabase';
 import { resolveAvatarUrl } from '../lib/avatar';
 import BottomNav from './BottomNav';
 import { usePendingInviteCount } from '../lib/usePendingInviteCount';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import { Dimensions } from 'react-native';
+
+const BT_COACHMARK_SEEN_KEY = 'bt_coachmark_seen_this_login';
+
 
 // ✅ keep your mock drivers as fallback (do NOT delete)
 const mockDrivers = [
@@ -235,9 +242,129 @@ function resolveMaybeUrl(value) {
   return raw;
 }
 
+function BluetoothCoachmark({ visible, targetLayout, onDismiss }) {
+  if (!visible || !targetLayout) return null;
+
+  const { width: screenW, height: screenH } = Dimensions.get('window');
+  const { x, y, width, height } = targetLayout;
+
+  const CARD_WIDTH = Math.min(300, screenW - 24);
+  const CARD_HEIGHT = 150;
+  const MARGIN = 12;
+  const NOTCH_SIZE = 10;
+  const PILL_HEIGHT = 40;
+
+  // Default: show BELOW button
+  let cardTop = y + height + NOTCH_SIZE + 6;
+  let notchDirection = 'up';
+
+  // Flip ABOVE if overflowing bottom
+  if (cardTop + CARD_HEIGHT > screenH - MARGIN) {
+    cardTop = y - CARD_HEIGHT - NOTCH_SIZE - 6;
+    notchDirection = 'down';
+  }
+
+  const cardLeft = Math.min(
+    screenW - CARD_WIDTH - MARGIN,
+    Math.max(MARGIN, x + width / 2 - CARD_WIDTH / 2)
+  );
+
+  // Notch horizontal position (relative to card)
+  const notchLeft = x + width / 2 - cardLeft - NOTCH_SIZE;
+
+  return (
+    <Modal transparent animationType="fade">
+      <Pressable style={styles.coachmarkBackdrop} onPress={onDismiss}>
+        <View
+          style={[
+            styles.coachmarkCard,
+            {
+              width: CARD_WIDTH,
+              left: cardLeft,
+              top: cardTop,
+            },
+          ]}
+        >
+
+          {/* NOTCH (merged, not floating) */}
+          <View
+            style={[
+              styles.coachmarkNotch,
+              notchDirection === 'down' && styles.coachmarkNotchDown,
+              {
+                left: notchLeft,
+                top: notchDirection === 'up' ? PILL_HEIGHT - 2 : undefined,
+                bottom: notchDirection === 'down' ? -NOTCH_SIZE + 2 : undefined,
+              },
+            ]}
+          />
+
+          {/* BODY */}
+          <View style={styles.coachmarkBody}>
+            <Text style={styles.coachmarkTitle}>Switch mode</Text>
+            <Text style={styles.coachmarkText}>
+            Tap the bluetooth icon to switch modes and connect to an IoT device.
+            </Text>
+
+            <Pressable onPress={onDismiss} style={styles.coachmarkBtn}>
+              <Text style={styles.coachmarkBtnText}>Got it</Text>
+            </Pressable>
+          </View>
+        </View>
+      </Pressable>
+    </Modal>
+  );
+}
+
+
+
 export default function EmergencyContactDashboard({ onNavigate, onViewDriver, onSwitchToDriver }) {
   const { count: pendingInviteCount } = usePendingInviteCount();
   const [drivers, setDrivers] = useState(mockDrivers);
+  const bluetoothBtnRef = useRef(null);
+
+  const [showBtCoachmark, setShowBtCoachmark] = useState(false);
+  const [btLayout, setBtLayout] = useState(null);
+  useEffect(() => {
+    let cancelled = false;
+  
+    const maybeShowCoachmark = async () => {
+      try {
+        const seen = await AsyncStorage.getItem(BT_COACHMARK_SEEN_KEY);
+        if (seen === 'true') return;
+  
+        requestAnimationFrame(() => {
+          if (cancelled) return;
+  
+          bluetoothBtnRef.current?.measureInWindow(
+            (x, y, width, height) => {
+              if (cancelled) return;
+  
+              setBtLayout({ x, y, width, height });
+              setShowBtCoachmark(true);
+            }
+          );
+        });
+      } catch (e) {
+        console.log('[Coachmark] storage read failed', e);
+      }
+    };
+  
+    maybeShowCoachmark();
+  
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+  
+  
+  const dismissBtCoachmark = async () => {
+    setShowBtCoachmark(false);
+    try {
+      await AsyncStorage.setItem(BT_COACHMARK_SEEN_KEY, 'true');
+    } catch {}
+  };
+  
 
   // ✅ forces periodic re-render so staleness flips automatically
   const [nowTick, setNowTick] = useState(Date.now());
@@ -874,19 +1001,25 @@ useEffect(() => {
         </View>
 
         <TouchableOpacity
-          onPress={openDeviceModal}
-          style={{
-            width: 44,
-            height: 44,
-            borderRadius: 22,
-            backgroundColor: 'rgba(255,255,255,0.18)',
-            alignItems: 'center',
-            justifyContent: 'center',
-          }}
-        >
-          <MaterialCommunityIcons name="bluetooth" size={22} color="white" />
-        </TouchableOpacity>
+  ref={bluetoothBtnRef}
+  onPress={openDeviceModal}
+  style={styles.bluetoothButton}
+>
+  <MaterialCommunityIcons
+    name="bluetooth"
+    size={22}
+    color="white"
+  />
+</TouchableOpacity>
+
       </View>
+
+      <BluetoothCoachmark
+  visible={showBtCoachmark}
+  targetLayout={btLayout}
+  onDismiss={dismissBtCoachmark}
+/>
+
 
       {/* Auto-connect overlay */}
       {autoConnectLoading && (
@@ -1710,4 +1843,121 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
+
+  coachmarkBackdrop: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.35)',
+  },
+  
+  coachmarkBubble: {
+    position: 'absolute',
+    backgroundColor: '#E0F2FE',
+    borderRadius: 16,
+    padding: 14,
+  },
+  
+  coachmarkTitle: {
+    fontSize: 14,
+    fontWeight: '900',
+    color: '#0C4A6E',
+  },
+  
+  coachmarkText: {
+    marginTop: 6,
+    fontSize: 12,
+    fontWeight: '700',
+    color: '#075985',
+    lineHeight: 16,
+  },
+  
+  coachmarkBtn: {
+    marginTop: 12,
+    alignSelf: 'flex-end',
+    backgroundColor: '#0369A1',
+    paddingHorizontal: 14,
+    paddingVertical: 6,
+    borderRadius: 999,
+  },
+  
+  coachmarkBtnText: {
+    color: 'white',
+    fontWeight: '800',
+    fontSize: 12,
+  },
+  
+  coachmarkCard: {
+    position: 'absolute',
+  },
+  
+  coachmarkPill: {
+    alignSelf: 'center',
+    backgroundColor: '#0B5ED7',
+    paddingHorizontal: 18,
+    height: 40,
+    borderRadius: 999,
+    justifyContent: 'center',
+    zIndex: 2,
+  },
+  
+  coachmarkPillText: {
+    color: 'white',
+    fontWeight: '900',
+    fontSize: 13,
+  },
+  
+  coachmarkBody: {
+    backgroundColor: '#CFEAFF',
+    borderRadius: 20,
+    padding: 16,
+    marginTop: -10, 
+  },
+  
+  coachmarkTitle: {
+    fontSize: 15,
+    fontWeight: '900',
+    color: '#0C4A6E',
+  },
+  
+  coachmarkText: {
+    marginTop: 6,
+    fontSize: 13,
+    fontWeight: '700',
+    color: '#075985',
+    lineHeight: 18,
+  },
+  
+  coachmarkBtn: {
+    marginTop: 14,
+    alignSelf: 'flex-end',
+    backgroundColor: '#075985',
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+    borderRadius: 999,
+  },
+  
+  coachmarkBtnText: {
+    color: 'white',
+    fontWeight: '800',
+    fontSize: 12,
+  },
+  
+  coachmarkNotch: {
+    position: 'absolute',
+    width: 0,
+    height: 0,
+    borderLeftWidth: 10,
+    borderRightWidth: 10,
+    borderTopWidth: 10,
+    borderLeftColor: 'transparent',
+    borderRightColor: 'transparent',
+    borderTopColor: '#CFEAFF',
+    zIndex: 1,
+  },
+  
+  coachmarkNotchDown: {
+    transform: [{ rotate: '180deg' }],
+  },
+  
+  
 });
+

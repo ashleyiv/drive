@@ -17,6 +17,7 @@ import Svg, { Path, Line, Circle, G, Rect } from 'react-native-svg';
 import { Feather, MaterialCommunityIcons } from '@expo/vector-icons';
 import { supabase } from '../lib/supabase';
 import BottomNav from './BottomNav';
+import useTheme from '../theme/useTheme';
 
 const LEVEL_UI = {
   1: { label: 'LEVEL 1 WARNING', color: '#16A34A', boxTitle: 'CAUTION', boxBg: '#ECFDF5', boxBorder: '#BBF7D0' },
@@ -366,8 +367,9 @@ function formatDateTime(iso) {
 
 
 export default function History({ onNavigate, navParams, clearNavParams }) {
+  const { theme, isDark } = useTheme();
   const [activeTab, setActiveTab] = useState('warnings'); // warnings | monitoring
-const autoOpenedRef = React.useRef(false);
+  const autoOpenedRef = React.useRef(false);
   // warnings
   const [loadingWarnings, setLoadingWarnings] = useState(true);
   const [warnings, setWarnings] = useState([]);
@@ -511,7 +513,7 @@ setDailyRows(data || []);
   };
 
   return (
-    <View style={styles.container}>
+    <View style={[styles.container, { backgroundColor: theme.background }]}>
       {/* Header */}
       <View style={styles.header}>
         <Text style={styles.headerTitle}>History</Text>
@@ -563,7 +565,7 @@ setDailyRows(data || []);
           )}
         </ScrollView>
       ) : (
-        <ScrollView contentContainerStyle={{ padding: 14, paddingBottom: 110 }}>
+        <ScrollView contentContainerStyle={{ padding: 14, paddingBottom: 110, background: theme.cardBackground }}>
           <View style={styles.grid}>
             <Tile
               title="EYE-LID MONITORING"
@@ -598,6 +600,7 @@ setDailyRows(data || []);
   variant="driver"
   activeKey="history"
   onNavigate={onNavigate}
+  theme={theme}
 />
 
       {/* =========================
@@ -794,7 +797,7 @@ setDailyRows(data || []);
           REPORTS MODAL (exact REPORTS layout)
          ========================= */}
       <Modal visible={reportsOpen} animationType="slide" onRequestClose={() => setReportsOpen(false)}>
-        <View style={{ flex: 1, backgroundColor: '#F3F4F6' }}>
+        <View style={{ flex: 1, backgroundColor: theme.background }}>
           <View style={styles.modalHeader}>
             <TouchableOpacity onPress={() => setReportsOpen(false)} style={styles.backBtn}>
               <Feather name="chevron-left" size={22} color="#fff" />
@@ -818,7 +821,7 @@ setDailyRows(data || []);
 
               {(!dailyRows || dailyRows.length === 0) && (
                 <View style={{ padding: 20 }}>
-                  <Text style={{ color: '#6B7280', textAlign: 'center' }}>
+                  <Text style={{ color: theme.textPrimary, textAlign: 'center' }}>
                    No monitoring data found yet.
 
                   </Text>
@@ -842,7 +845,7 @@ function Tile({ title, sub, icon, onPress }) {
         <Text style={styles.tileSub}>{sub}</Text>
       </View>
       <View style={{ alignItems: 'center', marginTop: 10 }}>
-        <Feather name="chevron-right" size={18} color="#6B7280" />
+        <Feather name="chevron-right" size={18} color="#CBD5F5" />
       </View>
     </TouchableOpacity>
   );
@@ -1131,7 +1134,7 @@ const styles = StyleSheet.create({
   grid: { flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'space-between', gap: 12 },
   tile: {
     width: '48%',
-    backgroundColor: '#E5E7EB',
+    backgroundColor: '#1E293B',
     borderRadius: 14,
     padding: 14,
     minHeight: 165,
@@ -1145,8 +1148,8 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     marginBottom: 8,
   },
-  tileTitle: { textAlign: 'center', fontWeight: '900', fontSize: 11, color: '#111827' },
-  tileSub: { textAlign: 'center', fontSize: 10, color: '#4B5563', marginTop: 6, lineHeight: 14 },
+  tileTitle: { textAlign: 'center', fontWeight: '900', fontSize: 11, color: '#F9FAFB' },
+  tileSub: { textAlign: 'center', fontSize: 10, color: '#CBD5F5', marginTop: 6, lineHeight: 14 },
 
   bottomNav: {
     position: 'absolute',

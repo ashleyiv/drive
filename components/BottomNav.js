@@ -2,6 +2,7 @@
 import React, { useEffect, useMemo, useRef } from 'react';
 import { View, Text, TouchableOpacity, StyleSheet, Animated, Easing } from 'react-native';
 import { Feather, FontAwesome5 } from '@expo/vector-icons';
+import useTheme from '../theme/useTheme';
 
 function clampBadgeText(n) {
   if (!n || n <= 0) return null;

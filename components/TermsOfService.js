@@ -1,10 +1,13 @@
 import React from 'react';
 import { View, Text, StyleSheet, ScrollView, TouchableOpacity } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
+import useTheme from '../theme/useTheme';
 
 export default function TermsOfService({ onBack }) {
+  const { theme, isDark, toggleTheme } = useTheme();
+
   return (
-    <View style={styles.container}>
+    <View style={[styles.container, { backgroundColor: theme.background }]}>
       <View style={styles.header}>
         <TouchableOpacity onPress={onBack}>
           <Ionicons name="arrow-back" size={24} color="white" />
@@ -13,60 +16,60 @@ export default function TermsOfService({ onBack }) {
       </View>
 
       <ScrollView contentContainerStyle={styles.content}>
-        <Text style={styles.sectionTitle}>1. Description of Service</Text>
-        <Text style={styles.text}>
+        <Text style={[styles.text, {color: theme.textPrimary }]}>1. Description of Service</Text>
+        <Text style={[styles.text, {color: theme.textPrimary }]}>
           D.R.I.V.E. provides a driver assistance monitoring system designed to
           detect driver fatigue/drowsiness and hand presence on the steering
           wheel.
         </Text>
 
-        <Text style={styles.sectionTitle}>2. Not a Substitute for Professional Safety</Text>
+        <Text style={[styles.sectionTitle, {color: theme.textPrimary }]}>2. Not a Substitute for Professional Safety</Text>
         <Text style={styles.warning}>
           CRITICAL WARNING: D.R.I.V.E. is a secondary safety aid and not an
           automated driving system.
         </Text>
-        <Text style={styles.bullet}>• The driver is solely responsible for safe vehicle operation.</Text>
-        <Text style={styles.bullet}>
+        <Text style={[styles.bullet, {color: theme.textPrimary }]}>• The driver is solely responsible for safe vehicle operation.</Text>
+        <Text style={[styles.bullet, {color: theme.textPrimary }]}>
           • The App may fail due to lighting, camera angles, or technical issues.
         </Text>
-        <Text style={styles.bullet}>
+        <Text style={[styles.bullet, {color: theme.textPrimary }]}>
           • Never drive while impaired or excessively tired. Pull over safely if needed.
         </Text>
 
-        <Text style={styles.sectionTitle}>3. User Responsibilities</Text>
-        <Text style={styles.bullet}>
+        <Text style={[styles.sectionTitle, {color: theme.textPrimary }]}>3. User Responsibilities</Text>
+        <Text style={[styles.bullet, {color: theme.textPrimary }]}>
           • Mount the device securely and do not obstruct your view or vehicle controls.
         </Text>
-        <Text style={styles.bullet}>
+        <Text style={[styles.bullet, {color: theme.textPrimary }]}>
           • Comply with all local traffic laws regarding mobile device usage.
         </Text>
-        <Text style={styles.bullet}>
+        <Text style={[styles.bullet, {color: theme.textPrimary }]}>
           • Keep the App updated for the latest safety improvements.
         </Text>
 
-        <Text style={styles.sectionTitle}>4. Privacy & Data</Text>
-        <Text style={styles.text}>
+        <Text style={[styles.sectionTitle, {color: theme.textPrimary }]}>4. Privacy & Data</Text>
+        <Text style={[styles.text, {color: theme.textPrimary }]}>
           Your use of the App is governed by our Privacy Policy. The App requires
           continuous camera access, with visual processing performed locally on
           your device to protect your privacy.
         </Text>
 
-        <Text style={styles.sectionTitle}>5. Limitation of Liability</Text>
-        <Text style={styles.bullet}>
+        <Text style={[styles.sectionTitle, {color: theme.textPrimary }]}>5. Limitation of Liability</Text>
+        <Text style={[styles.bullet, {color: theme.textPrimary }]}>
           • D.R.I.V.E. and its developers are not liable for accidents, injuries, or fatalities.
         </Text>
-        <Text style={styles.bullet}>
+        <Text style={[styles.bullet, {color: theme.textPrimary }]}>
           • No liability for traffic violations, fines, or damages.
         </Text>
 
-        <Text style={styles.sectionTitle}>6. No Warranty</Text>
-        <Text style={styles.text}>
+        <Text style={[styles.sectionTitle, {color: theme.textPrimary }]}>6. No Warranty</Text>
+        <Text style={[styles.text, {color: theme.textPrimary }]}>
           The App is provided "AS IS" and "AS AVAILABLE" without warranties of any kind.
           Detection accuracy may be affected by lighting, sunglasses, or obstructions.
         </Text>
 
-        <Text style={styles.sectionTitle}>7. Modifications to Terms</Text>
-        <Text style={styles.text}>
+        <Text style={[styles.sectionTitle, {color: theme.textPrimary }]}>7. Modifications to Terms</Text>
+        <Text style={[styles.text, {color: theme.textPrimary }]}>
           We reserve the right to update these Terms at any time. Continued use of
           the App after changes constitutes acceptance of the updated Terms.
         </Text>
@@ -109,7 +112,7 @@ const styles = StyleSheet.create({
   },
   warning: {
     fontSize: 15,
-    color: '#DC2626',
+    color: '#FF000D',
     marginTop: 8,
     fontWeight: 'bold',
     lineHeight: 22,

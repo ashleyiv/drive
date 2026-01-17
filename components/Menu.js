@@ -22,6 +22,8 @@ import { getUserAvatarUrl, clearAvatarCache } from '../lib/avatar';
 import { supabase } from '../lib/supabase';
 import { formatPHPretty } from '../lib/phonePH';
 import BottomNav from './BottomNav';
+import useTheme from '../theme/useTheme';
+
 // ✅ Turn OFF mode switching UI without deleting logic
 const ENABLE_MODE_SWITCH = false;
 
@@ -35,7 +37,6 @@ export default function Menu({
   userPhone = '—',
   userEmail = '—',
 }) {
-  const [darkMode, setDarkMode] = useState(false);
 
   // Mode state (kept, but UI disabled)
   const [isEmergencyContactMode, setIsEmergencyContactMode] = useState(false);
@@ -47,6 +48,7 @@ export default function Menu({
   const [showPrivacyPolicy, setShowPrivacyPolicy] = useState(false);
   const [showTerms, setShowTerms] = useState(false);
   const [showLogoutConfirm, setShowLogoutConfirm] = useState(false);
+  const { theme, isDark, toggleTheme } = useTheme();
 
   // Profile state from Supabase
   const [profileLoading, setProfileLoading] = useState(true);
@@ -160,44 +162,27 @@ export default function Menu({
     setPendingEmergencyValue(isEmergencyContactMode);
   };
 
-  const theme = useMemo(
-    () => ({
-      background: darkMode ? '#1F2937' : 'white',
-      cardBackground: darkMode ? '#374151' : '#1E40AF',
-      toggleBackground: darkMode ? '#4B5563' : '#F3F4F6',
-      toggleIconBackground: darkMode ? '#2563EB' : '#DBEAFE',
-      textPrimary: darkMode ? 'white' : '#111827',
-      textSecondary: darkMode ? '#D1D5DB' : '#6B7280',
-      iconColor: darkMode ? '#2563EB' : '#2563EB',
-      navActiveBackground: '#3B82F6',
-      navActiveText: 'white',
-      navInactiveText: darkMode ? '#D1D5DB' : '#3B82F6',
-      navBackground: darkMode ? '#111827' : 'white',
-      borderColor: darkMode ? '#4B5563' : '#F3F4F6',
-    }),
-    [darkMode]
-  );
 
   const menuItems = [
     {
-      icon: <Ionicons name="moon" size={20} color={darkMode ? 'white' : '#2563EB'} />,
+      icon: <Ionicons name="moon" size={20} color={theme.iconPrimary} />,
       label: 'Dark Mode',
-      action: () => setDarkMode(!darkMode),
+      action: toggleTheme,
       isSwitch: true,
-      switchValue: darkMode,
-    },
+      switchValue: isDark,
+    },    
     {
-      icon: <Ionicons name="shield" size={20} color={darkMode ? 'white' : '#2563EB'} />,
+      icon: <Ionicons name="shield" size={20} color={theme.iconPrimary} />,
       label: 'Privacy Policy',
       action: () => setShowPrivacyPolicy(true),
     },
     {
-      icon: <Feather name="file-text" size={20} color={darkMode ? 'white' : '#2563EB'} />,
+      icon: <Feather name="file-text" size={20} color={theme.iconPrimary} />,
       label: 'Terms of Service',
       action: () => setShowTerms(true),
     },
     {
-      icon: <Feather name="info" size={20} color={darkMode ? 'white' : '#2563EB'} />,
+      icon: <Feather name="info" size={20} color={theme.iconPrimary} />,
       label: 'About',
       action: () => setShowAbout(true),
     },
@@ -215,14 +200,14 @@ export default function Menu({
         userPhone={profilePhone}
         userEmail={profileEmail}
         onBack={() => setShowAccountSettings(false)}
-        darkMode={darkMode}
+        darkMode={isDark}
       />
     );
   }
 
-  if (showAbout) return <About onBack={() => setShowAbout(false)} darkMode={darkMode} />;
-  if (showPrivacyPolicy) return <PrivacyPolicy onBack={() => setShowPrivacyPolicy(false)} darkMode={darkMode} />;
-  if (showTerms) return <TermsOfService onBack={() => setShowTerms(false)} darkMode={darkMode} />;
+  if (showAbout) return <About onBack={() => setShowAbout(false)} darkMode={isDark} />;
+  if (showPrivacyPolicy) return <PrivacyPolicy onBack={() => setShowPrivacyPolicy(false)} darkMode={isDark} />;
+  if (showTerms) return <TermsOfService onBack={() => setShowTerms(false)} darkMode={isDark} />;
 
   return (
     <View style={[styles.container, { backgroundColor: theme.background }]}>
@@ -269,7 +254,7 @@ export default function Menu({
             >
               <View style={{ flexDirection: 'row', alignItems: 'center' }}>
                 <View style={[styles.toggleIcon, { backgroundColor: theme.toggleIconBackground }]}>
-                  <AntDesign name="user-switch" size={20} color={darkMode ? 'white' : '#2563EB'} />
+                  <AntDesign name="user-switch" size={20}  />
                 </View>
 
                 <View style={{ marginLeft: 12 }}>
@@ -347,12 +332,12 @@ export default function Menu({
       {/* Logout confirm */}
       <Modal transparent visible={showLogoutConfirm} animationType="fade">
         <View style={styles.modalOverlay}>
-          <View style={styles.modalBox}>
-            <Text style={styles.modalTitle}>Log Out</Text>
-            <Text style={styles.modalText}>Are you sure you want to log out?</Text>
+          <View style={[styles.modalBox, {backgroundColor: theme.cardBackground},]}>
+            <Text style={[styles.modalTitle, {color: theme.textPrimary }]}>Log Out</Text>
+            <Text style={[styles.modalText, {color: theme.textSecondary }]}>Are you sure you want to log out?</Text>
 
             <View style={styles.modalActions}>
-              <Pressable style={[styles.modalButton, styles.cancelButton]} onPress={() => setShowLogoutConfirm(false)}>
+              <Pressable style={[styles.modalButton, styles.cancelButton, {backgroundColor: theme.textSecondary,}]} onPress={() => setShowLogoutConfirm(false)}>
                 <Text style={styles.cancelText}>Cancel</Text>
               </Pressable>
 

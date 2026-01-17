@@ -15,6 +15,16 @@ import {
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { normalizePHToDigits10, normalizePHToE164 } from '../lib/phonePH';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+
+const handleLoginSuccess = async () => {
+  // Reset coach mark for this session
+  await AsyncStorage.removeItem('seenBluetoothCoachmark');
+
+  // Navigate to dashboard
+  navigation.replace('Dashboard');
+};
+
 
 export default function SignupScreen({ onSignup, onBackToLogin }) {
   const [email, setEmail] = useState('');

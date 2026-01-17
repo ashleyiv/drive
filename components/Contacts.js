@@ -17,6 +17,8 @@ import { supabase } from '../lib/supabase';
 import { cleanDialNumber, formatPHPretty } from '../lib/phonePH';
 import { getUsersAvatarUrls, resolveAvatarUrl } from '../lib/avatar';
 import BottomNav from './BottomNav';
+import useTheme from '../theme/useTheme';
+
 function buildFullName(first, last) {
   const f = String(first || '').trim();
   const l = String(last || '').trim();
@@ -35,6 +37,7 @@ function displayNameFromProfile(p) {
 }
 
 export default function Contacts({ onNavigate }) {
+  const { theme, isDark } = useTheme();
   const [modalVisible, setModalVisible] = useState(false);
   const activeSearchReq = useRef(0);
 
@@ -522,7 +525,7 @@ setResults((prev) => prev.filter((x) => String(x.id) !== String(targetUserId)));
   };
 
   return (
-    <View style={styles.container}>
+    <View style={[styles.container, { backgroundColor: theme.background }]}>
       {/* ✅ Header (match screenshot) */}
       <View style={styles.header}>
         <Text style={styles.headerTitle}>Emergency Contacts</Text>
@@ -560,14 +563,15 @@ setResults((prev) => prev.filter((x) => String(x.id) !== String(targetUserId)));
   variant="driver"
   activeKey="contacts"
   onNavigate={onNavigate}
+  theme={theme}
 />
 
 
       {/* Add Contact Modal */}
       <Modal visible={modalVisible} transparent animationType="fade">
         <View style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.4)', justifyContent: 'center', alignItems: 'center' }}>
-          <View style={{ width: '88%', backgroundColor: '#fff', borderRadius: 12, padding: 18 }}>
-            <Text style={{ fontSize: 18, fontWeight: '700', marginBottom: 12 }}>
+          <View style={{ width: '88%', backgroundColor: theme.cardBackground, borderRadius: 12, padding: 18 }}>
+            <Text style={{ fontSize: 18, fontWeight: '700', marginBottom: 12, color: theme.textPrimary, }}>
               Search users to invite
             </Text>
 
@@ -585,17 +589,18 @@ setResults((prev) => prev.filter((x) => String(x.id) !== String(targetUserId)));
               <Ionicons name="search" size={18} color="#6B7280" />
               <TextInput
                 placeholder="Type email or phone…"
+                placeholderTextColor={theme.textSecondary}
                 value={searchText}
                 onChangeText={setSearchText}
                 autoCapitalize="none"
                 keyboardType="default"
-                style={{ flex: 1, fontSize: 16, marginLeft: 10 }}
+                style={{ flex: 1, fontSize: 16, marginLeft: 10, color: theme.textPrimary, }}
                 returnKeyType="search"
                 // ✅ keep manual submit too (not required anymore)
                 onSubmitEditing={() => runSearch(searchText)}
               />
               <Pressable onPress={() => runSearch(searchText)} style={{ paddingHorizontal: 8, paddingVertical: 6 }}>
-                <Text style={{ color: '#2563EB', fontWeight: '700' }}>
+                <Text style={{ color: '#138bd1', fontWeight: '700' }}>
                   {searching ? '...' : 'Go'}
                 </Text>
               </Pressable>
@@ -605,10 +610,10 @@ setResults((prev) => prev.filter((x) => String(x.id) !== String(targetUserId)));
               {searching ? (
                 <View style={{ paddingVertical: 16, alignItems: 'center' }}>
                   <ActivityIndicator color="#2563EB" />
-                  <Text style={{ marginTop: 8, color: '#6B7280' }}>Searching…</Text>
+                  <Text style={{ marginTop: 8, color: theme.textSecondary }}>Searching…</Text>
                 </View>
               ) : results.length === 0 ? (
-                <Text style={{ paddingVertical: 16, color: '#6B7280', textAlign: 'center' }}>
+                <Text style={{ paddingVertical: 16, color: theme.textSecondary, textAlign: 'center' }}>
                   {searchText.trim()
                     ? 'No users found (or they are already in your contacts)'
                     : 'Start typing to search users'}
@@ -652,10 +657,10 @@ setResults((prev) => prev.filter((x) => String(x.id) !== String(targetUserId)));
                         </View>
 
                         <View style={{ flex: 1, paddingRight: 12 }}>
-                          <Text style={{ fontWeight: '800', color: '#111827' }}>
+                          <Text style={{ fontWeight: '800', color: theme.textPrimary }}>
                             {full || email || 'Unknown User'}
                           </Text>
-                          <Text style={{ marginTop: 2, color: '#6B7280', fontSize: 12 }}>
+                          <Text style={{ marginTop: 2, color: theme.textSecondary, fontSize: 12 }}>
                             {email}
                             {phonePretty ? ` • ${phonePretty}` : ''}
                           </Text>
@@ -682,7 +687,7 @@ setResults((prev) => prev.filter((x) => String(x.id) !== String(targetUserId)));
               }}
               style={{ marginTop: 14, alignItems: 'center' }}
             >
-              <Text style={{ color: '#6B7280', fontWeight: '600' }}>Close</Text>
+              <Text style={{ color: theme.textSecondary, fontWeight: '600' }}>Close</Text>
             </Pressable>
           </View>
         </View>

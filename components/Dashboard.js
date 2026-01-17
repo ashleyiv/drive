@@ -26,6 +26,7 @@ import * as Location from 'expo-location';
 import { startDriverLocationStream, stopDriverLocationStream } from '../lib/driverStatus';
 import BottomNav from './BottomNav';
 import { usePendingInviteCount } from '../lib/usePendingInviteCount';
+import useTheme from '../theme/useTheme';
 
 function ModeSwitchOverlay({ visible, title, subtitle, stylesObj }) {
   const progress = useRef(new Animated.Value(0)).current;
@@ -81,6 +82,7 @@ function ModeSwitchOverlay({ visible, title, subtitle, stylesObj }) {
 }
 
 export default function Dashboard({ onNavigate, onSwitchToEmergencyContact }) {
+  const { theme, isDark, toggleTheme } = useTheme();
   const [showWarningDetails, setShowWarningDetails] = useState(false);
     // ✅ Pending invites badge (for bell)
   const { count: pendingInviteCount } = usePendingInviteCount({ enabled: true });
@@ -783,7 +785,7 @@ useEffect(() => {
 
  if (showNotifications) {
   return (
-    <View style={[s.screen, { paddingTop: 50 }]}>
+    <View style={{ flex: 1, backgroundColor: theme.background }}>
       <View style={{ paddingHorizontal: 18, paddingBottom: 10, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
         <Text style={{ fontSize: 18, fontWeight: '900', color: '#111827' }}>Notifications</Text>
         <TouchableOpacity onPress={() => setShowNotifications(false)}>
@@ -791,7 +793,7 @@ useEffect(() => {
         </TouchableOpacity>
       </View>
 
-      <ScrollView contentContainerStyle={{ paddingHorizontal: 18, paddingBottom: 18 }}>
+      <ScrollView contentContainerStyle={{ paddingHorizontal: 18, paddingBottom: 18,  }}>
         <View style={{ padding: 14, borderRadius: 14, backgroundColor: '#F3F4F6', marginBottom: 12 }}>
           <Text style={{ fontWeight: '900', color: '#111827' }}>Pending requests</Text>
           <Text style={{ marginTop: 4, color: '#6B7280', fontWeight: '700' }}>
@@ -929,7 +931,7 @@ async function stopLocationStreaming(subscription) {
   await setMyMode('contact');
 }
   return (
-    <View style={s.screen}>
+    <View style={[s.screen, { backgroundColor: theme.background }]}>
           <ModeSwitchOverlay
       visible={modeOverlayVisible}
       title="DRIVER MODE"
@@ -975,13 +977,13 @@ async function stopLocationStreaming(subscription) {
           </View>
 
           <View style={{ marginLeft: 12 }}>
-            <Text style={s.helloSmall}>Hello,</Text>
-            <Text style={s.helloName}>{myFullName}</Text>
+            <Text style={[s.helloSmall, { color: theme.textSecondary }]}>Hello,</Text>
+            <Text style={[s.helloName, { color: theme.textPrimary }]}>{myFullName}</Text>
           </View>
         </View>
 
         {/* Recent Activity */}
-        <Text style={s.sectionTitle}>Recent Activity</Text>
+        <Text style={[s.sectionTitle, { color: theme.textPrimary }]}>Recent Activity</Text>
 
         <TouchableOpacity
           onPress={() => {
@@ -1098,21 +1100,22 @@ async function stopLocationStreaming(subscription) {
   variant="driver"
   activeKey="home"
   onNavigate={onNavigate}
+  theme={theme}
 />
 
 
       {/* Device modal (UNCHANGED logic, only kept as-is) */}
       <Modal visible={deviceModalVisible} transparent animationType="fade">
         <View style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.45)', justifyContent: 'center', alignItems: 'center', paddingHorizontal: 18 }}>
-          <View style={{ width: '100%', backgroundColor: 'white', borderRadius: 16, padding: 16 }}>
+          <View style={{ width: '100%', backgroundColor: theme.cardBackground, borderRadius: 16, padding: 16 }}>
             <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
-              <Text style={{ fontSize: 16, fontWeight: '700', color: '#111827' }}>Bluetooth Devices</Text>
+              <Text style={{ fontSize: 16, fontWeight: '700', color: theme.textPrimary }}>Bluetooth Devices</Text>
               <Pressable onPress={closeDeviceModal}>
                 <Ionicons name="close" size={22} color="#111827" />
               </Pressable>
             </View>
 
-            <Text style={{ marginTop: 6, color: '#6B7280', fontSize: 12 }}>
+            <Text style={{ marginTop: 6, color: theme.textSecondary, fontSize: 12 }}>
               Demo connection flow (frontend only)
             </Text>
 
@@ -1205,7 +1208,7 @@ async function stopLocationStreaming(subscription) {
                   )}
 
                   {scanState === 'scanning' && (
-                    <Text style={{ color: '#6B7280', fontSize: 12, marginTop: 6 }}>
+                    <Text style={{ color: theme.textSecondary, fontSize: 12, marginTop: 6 }}>
                       Looking for nearby devices…
                     </Text>
                   )}
@@ -1273,7 +1276,7 @@ async function stopLocationStreaming(subscription) {
                   )}
                 </Pressable>
 
-                <Text style={{ marginTop: 10, color: '#6B7280', fontSize: 11, textAlign: 'center' }}>
+                <Text style={{ marginTop: 10, color: theme.textSecondary , fontSize: 11, textAlign: 'center' }}>
                   Flow: Scan → select → Pair → Connected (D.R.I.V.E)
                 </Text>
               </>

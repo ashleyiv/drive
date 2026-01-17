@@ -30,7 +30,21 @@ import EmergencyContactNotifications from './components/EmergencyContactNotifica
 import EmergencyContactSettings from './components/EmergencyContactSettings.js';
 import DriverDetailView from './components/DriverDetailView';
 import ModeSwitchLoadingScreen from './components/ModeSwitchLoadingScreen';
+
+/* THEME */
+import { ThemeProvider } from './theme/ThemeContext';
+import useTheme from './theme/useTheme';
+
 export default function App() {
+  return (
+    <ThemeProvider>
+      <AppContent />
+    </ThemeProvider>
+  );
+}
+
+function AppContent() {
+  const { theme } = useTheme();
   const [currentScreen, setCurrentScreen] = useState('splash');
   const [navParams, setNavParams] = useState(null);
   const otpInFlightRef = useRef(false);
@@ -389,6 +403,7 @@ const handleNewPasswordSubmit = async (newPassword) => {
   const handleLogout = async () => {
     try {
       await supabase.auth.signOut();
+      await AsyncStorage.removeItem('bt_coachmark_seen_this_login');
     } catch {}
     setLocationPermissionGranted(false);
     setOtpFlow(null);
@@ -399,7 +414,7 @@ const handleNewPasswordSubmit = async (newPassword) => {
   };
 
    return (
-    <View style={styles.container}>
+    <View style={[styles.container, { backgroundColor: theme.background }]}>
       {currentScreen === 'mode-switch' && (
         <ModeSwitchLoadingScreen
           title={modeSwitchConfig?.title || 'Loading…'}

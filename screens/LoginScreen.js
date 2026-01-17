@@ -10,8 +10,21 @@ import {
   ActivityIndicator,
 } from 'react-native';
 import { Feather } from '@expo/vector-icons';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import useTheme from '../theme/useTheme';
+
+const handleLoginSuccess = async () => {
+  // Reset coach mark for this session
+  await AsyncStorage.removeItem('seenBluetoothCoachmark');
+
+  // Navigate to dashboard
+  navigation.replace('Dashboard');
+};
+
 
 export default function LoginScreen({ onLogin, onForgotPassword, onSignup }) {
+  const { theme } = useTheme();
+
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
 
