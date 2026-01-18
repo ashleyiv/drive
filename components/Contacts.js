@@ -570,7 +570,7 @@ setResults((prev) => prev.filter((x) => String(x.id) !== String(targetUserId)));
       {/* Add Contact Modal */}
       <Modal visible={modalVisible} transparent animationType="fade">
         <View style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.4)', justifyContent: 'center', alignItems: 'center' }}>
-          <View style={{ width: '88%', backgroundColor: theme.cardBackground, borderRadius: 12, padding: 18 }}>
+          <View style={{ width: '88%', backgroundColor: theme.background, borderRadius: 12, padding: 18 }}>
             <Text style={{ fontSize: 18, fontWeight: '700', marginBottom: 12, color: theme.textPrimary, }}>
               Search users to invite
             </Text>

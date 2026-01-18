@@ -1107,7 +1107,7 @@ async function stopLocationStreaming(subscription) {
       {/* Device modal (UNCHANGED logic, only kept as-is) */}
       <Modal visible={deviceModalVisible} transparent animationType="fade">
         <View style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.45)', justifyContent: 'center', alignItems: 'center', paddingHorizontal: 18 }}>
-          <View style={{ width: '100%', backgroundColor: theme.cardBackground, borderRadius: 16, padding: 16 }}>
+          <View style={{ width: '100%', backgroundColor: theme.background, borderRadius: 16, padding: 16 }}>
             <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
               <Text style={{ fontSize: 16, fontWeight: '700', color: theme.textPrimary }}>Bluetooth Devices</Text>
               <Pressable onPress={closeDeviceModal}>
