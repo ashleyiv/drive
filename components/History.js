@@ -1134,7 +1134,7 @@ const styles = StyleSheet.create({
   grid: { flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'space-between', gap: 12 },
   tile: {
     width: '48%',
-    backgroundColor: '#1E293B',
+    backgroundColor: '#0B2E63',
     borderRadius: 14,
     padding: 14,
     minHeight: 165,
