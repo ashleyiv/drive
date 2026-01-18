@@ -15,6 +15,7 @@ import { formatPHPretty } from '../lib/phonePH';
 import { clearAvatarCache, getUserAvatarUrl, resolveAvatarUrl } from '../lib/avatar'; // ✅ added
 import BottomNav from './BottomNav';
 import { usePendingInviteCount } from '../lib/usePendingInviteCount';
+import useTheme from '../theme/useTheme';
 const ENABLE_MODE_SWITCH = false; // ✅ Disable switching UI without deleting logic
 
 const lightTheme = {
@@ -353,6 +354,7 @@ const { count: pendingInviteCount } = usePendingInviteCount();
   activeKey="settings"
   onNavigate={onNavigate}
   notificationCount={pendingInviteCount}
+  theme={theme}
 />
 
     </View>

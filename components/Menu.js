@@ -332,7 +332,7 @@ export default function Menu({
       {/* Logout confirm */}
       <Modal transparent visible={showLogoutConfirm} animationType="fade">
         <View style={styles.modalOverlay}>
-          <View style={[styles.modalBox, {backgroundColor: theme.cardBackground},]}>
+          <View style={[styles.modalBox, {backgroundColor: theme.background},]}>
             <Text style={[styles.modalTitle, {color: theme.textPrimary }]}>Log Out</Text>
             <Text style={[styles.modalText, {color: theme.textSecondary }]}>Are you sure you want to log out?</Text>
 

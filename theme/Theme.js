@@ -6,7 +6,7 @@ export const LightTheme = {
     surface: '#F9FAFB',
   
     textPrimary: '#111827',
-    textSecondary: '#6B7280',
+    textSecondary: '#bcbcbc',
   
     iconPrimary: '#2563EB',
     border: '#E5E7EB',

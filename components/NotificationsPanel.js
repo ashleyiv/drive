@@ -14,6 +14,7 @@ const notifications = [
     color: '#dc2626', 
     bgColor: '#fee2e2', 
     icon: 'alert-triangle', 
+    isRead: false,
   },
   {
     id: '2',
@@ -25,6 +26,7 @@ const notifications = [
     color: '#d97706', 
     bgColor: '#fef3c7',
     icon: 'alert-triangle',
+    isRead: false,
   },
   {
     id: '3',
@@ -35,6 +37,7 @@ const notifications = [
     color: '#2563eb', 
     bgColor: '#dbeafe', 
     icon: 'info',
+    isRead: true,
   },
   {
     id: '4',
@@ -46,11 +49,19 @@ const notifications = [
     color: '#16a34a', 
     bgColor: '#dcfce7', 
     icon: 'alert-triangle',
+    isRead: false,
   },
 ];
 
 export default function NotificationsPanel() {
   const navigation = useNavigation();
+  const [unreadCount, setUnreadCount] = useState(0);
+
+  // Calculate the number of unread notifications
+  useEffect(() => {
+    const count = notifications.filter((notification) => !notification.isRead).length;
+    setUnreadCount(count);
+  }, []);
 
   const renderIcon = (iconName, color) => {
     switch (iconName) {
@@ -132,6 +143,12 @@ export default function NotificationsPanel() {
           <Text style={styles.navText}>Menu</Text>
         </TouchableOpacity>
       </View>
+      {/* Notification Badge */}
+      {unreadCount > 0 && (
+        <View style={styles.notificationBadge}>
+          <Text style={styles.badgeText}>{unreadCount}</Text>
+        </View>
+      )}
     </View>
   );
 }
@@ -148,6 +165,17 @@ const styles = StyleSheet.create({
   notificationMessage: { fontSize: 12, color: '#4b5563', marginBottom: 2 },
   notificationTime: { fontSize: 12, color: '#6b7280' },
   navBar: { flexDirection: 'row', justifyContent: 'space-around', paddingVertical: 12, backgroundColor: '#3b82f6' },
+  notificationBadge: {
+    position: 'absolute',
+    top: 50,
+    right: 16,
+    backgroundColor: '#dc2626',
+    width: 24,
+    height: 24,
+    borderRadius: 12,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
   navButton: { alignItems: 'center' },
   navIcon: { width: 40, height: 40, borderRadius: 20, backgroundColor: '#60a5fa', justifyContent: 'center', alignItems: 'center', marginBottom: 4 },
   navText: { fontSize: 10, color: 'white' },
