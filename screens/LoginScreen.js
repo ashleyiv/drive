@@ -165,19 +165,34 @@ export default function LoginScreen({ onLogin, onForgotPassword, onSignup }) {
   };
 
   return (
-    <ScrollView contentContainerStyle={styles.container} keyboardShouldPersistTaps="handled">
+    <ScrollView contentContainerStyle={[styles.container, {backgroundColor: theme.background}]} keyboardShouldPersistTaps="handled">
       <View style={styles.spacer} />
 
-      <Text style={styles.title}>Log in to DRIVE</Text>
-      <Text style={styles.description}>Welcome back! Please enter your details.</Text>
+      <Text style={[styles.title, {color: theme.textPrimary }]}>Log in to DRIVE</Text>
+      <Text style={[styles.description, {color: theme.textPrimary}]}>Welcome back! Please enter your details.</Text>
 
       {/* EMAIL */}
       <View style={styles.field}>
-        <Text style={styles.label}>Email</Text>
-        <View style={[styles.inputWrapper, loading && styles.disabledField]}>
-          <Feather name="mail" size={18} style={styles.icon} />
+        <Text style={[styles.label, {color: theme.textSecondary }]}>Email</Text>
+        <View
+  style={[
+    styles.inputWrapper,
+    {
+      backgroundColor: loading
+        ? theme.inputBackground
+        : theme.disabledInputBackground,
+      borderColor: theme.border,
+    },
+  ]}
+>
+
+          <Feather name="mail" size={18} style={[
+    styles.icon,
+    { color: theme.primary },
+  ]} />
           <TextInput
             placeholder="you@gmail.com"
+            placeholderTextColor={theme.textSecondary}
             keyboardType="email-address"
             autoCapitalize="none"
             autoCorrect={false}
@@ -191,23 +206,45 @@ export default function LoginScreen({ onLogin, onForgotPassword, onSignup }) {
               if (errors.email) setErrors((p) => ({ ...p, email: undefined }));
             }}
             onFocus={() => setTouched((p) => ({ ...p, email: true }))}
-            style={styles.input}
+            style={[
+    styles.input,
+    { color: theme.inputText },
+  ]}
             editable={!loading}
             maxLength={55}
           />
         </View>
 
         {/* show ONLY after tapping/focus */}
-        {touched.email && !!realtimeEmailError && <Text style={styles.error}>{realtimeEmailError}</Text>}
+        {touched.email && !!realtimeEmailError && (
+  <Text style={[styles.error, { color: theme.danger }]}>
+    {realtimeEmailError}
+  </Text>
+)}
       </View>
 
       {/* PASSWORD */}
       <View style={styles.field}>
-        <Text style={styles.label}>Password</Text>
-        <View style={[styles.inputWrapper, loading && styles.disabledField]}>
-          <Feather name="lock" size={18} style={styles.icon} />
+        <Text style={[styles.label, {color: theme.textSecondary }]}>Password</Text>
+        <View
+  style={[
+    styles.inputWrapper,
+    {
+      backgroundColor: loading
+        ? theme.inputBackground
+        : theme.disabledInputBackground,
+      borderColor: theme.border,
+    },
+  ]}
+>
+
+          <Feather name="lock" size={18} style={[
+    styles.icon,
+    { color: theme.primary },
+  ]} />
           <TextInput
             placeholder="Password"
+            placeholderTextColor={theme.textSecondary}
             secureTextEntry={!showPassword}
             value={password}
             onChangeText={(t) => {
@@ -218,43 +255,58 @@ export default function LoginScreen({ onLogin, onForgotPassword, onSignup }) {
               if (errors.password) setErrors((p) => ({ ...p, password: undefined }));
             }}
             onFocus={() => setTouched((p) => ({ ...p, password: true }))}
-            style={styles.input}
+            style={[
+    styles.input,
+    { color: theme.inputText },
+  ]}
             editable={!loading}
             maxLength={30}
           />
           <Pressable onPress={() => setShowPassword(!showPassword)} disabled={loading}>
-            <Feather name={showPassword ? 'eye-off' : 'eye'} size={18} color="#6B7280" />
+            <Feather name={showPassword ? 'eye-off' : 'eye'} size={18} color={theme.textSecondary} />
           </Pressable>
         </View>
 
-        {touched.password && !!realtimePasswordError && <Text style={styles.error}>{realtimePasswordError}</Text>}
-      </View>
+        {touched.password && !!realtimePasswordError && (
+  <Text style={[styles.error, { color: theme.danger }]}>
+    {realtimePasswordError}
+  </Text>
+)}
+</View>
 
       <Pressable
-        style={[styles.loginButton, loading && styles.loginButtonDisabled]}
-        onPress={handleSubmit}
-        disabled={loading}
-      >
+  style={[
+    styles.loginButton,
+    {
+      backgroundColor: loading
+        ? theme.buttonDisabled
+        : theme.primary,
+    },
+  ]}
+  onPress={handleSubmit}
+  disabled={loading}
+>
+
         {loading ? (
           <View style={styles.loadingRow}>
             <ActivityIndicator size="small" color="#fff" />
             <Text style={styles.loginText}>Verifying...</Text>
           </View>
         ) : (
-          <Text style={styles.loginText}>Log In</Text>
+          <Text style={[styles.loginText, {color: theme.textPrimary }]}>Log in</Text>
         )}
       </Pressable>
 
       {/* ✅ Google button REMOVED (as requested) */}
 
       <Pressable onPress={onForgotPassword} disabled={loading}>
-        <Text style={styles.forgot}>Forgot password?</Text>
+        <Text style={[styles.forgot, {color: theme.tabBg }]}>Forgot password?</Text>
       </Pressable>
 
       <View style={styles.signupContainer}>
-        <Text style={styles.signupText}>Don't have an account? </Text>
+        <Text style={[styles.signupText, {color: theme.textSecondary }]}>Don't have an account? </Text>
         <Pressable onPress={onSignup} disabled={loading}>
-          <Text style={styles.signupLink}>Sign Up</Text>
+          <Text style={[styles.signupLink, {color: theme.tabBg }]}>Sign Up</Text>
         </Pressable>
       </View>
 

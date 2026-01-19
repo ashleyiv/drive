@@ -476,7 +476,10 @@ setResults((prev) => prev.filter((x) => String(x.id) !== String(targetUserId)));
         onPress={handleCardPress}
         onLongPress={handleCardLongPress}
         delayLongPress={400}
-        style={styles.card}
+        style={[
+    styles.card,
+    { backgroundColor: theme.surface }, // ✅ theme-aware background
+  ]}
       >
         {/* avatar */}
         <View style={styles.avatarWrap}>
@@ -491,7 +494,7 @@ setResults((prev) => prev.filter((x) => String(x.id) !== String(targetUserId)));
 
         {/* text */}
         <View style={{ flex: 1 }}>
-          <Text style={styles.nameText}>
+          <Text style={[styles.nameText, { color: theme.textPrimary }]}>
             {(full || item.email || 'Unknown User').toUpperCase()}
           </Text>
 
@@ -527,7 +530,7 @@ setResults((prev) => prev.filter((x) => String(x.id) !== String(targetUserId)));
   return (
     <View style={[styles.container, { backgroundColor: theme.background }]}>
       {/* ✅ Header (match screenshot) */}
-      <View style={styles.header}>
+      <View style={[styles.header, { backgroundColor: theme.primary }]}>
         <Text style={styles.headerTitle}>Emergency Contacts</Text>
         <Text style={styles.headerSub}>Manage your emergency contacts</Text>
       </View>
@@ -795,8 +798,6 @@ const styles = {
     paddingTop: 46,
     paddingHorizontal: 16,
     paddingBottom: 14,
-    borderBottomLeftRadius: 16,
-    borderBottomRightRadius: 16,
   },
   headerTitle: { color: '#fff', fontSize: 20, fontWeight: '900' },
   headerSub: { color: 'rgba(255,255,255,0.85)', marginTop: 2, fontSize: 12 },
@@ -836,7 +837,7 @@ const styles = {
   },
 
   nameText: { fontSize: 13, fontWeight: '900', color: '#111827' },
-  phoneText: { marginTop: 4, fontSize: 12, color: '#6B7280', fontWeight: '700' },
+  phoneText: { marginTop: 4, fontSize: 12, color: '#848586', fontWeight: '700' },
   pendingText: { marginTop: 6, fontSize: 12, color: '#F59E0B', fontWeight: '900' },
 
   trashBtn: {

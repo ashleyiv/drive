@@ -21,29 +21,6 @@ import TermsOfService from './TermsOfService';
 import useTheme from '../theme/useTheme';
 const ENABLE_MODE_SWITCH = false; // ✅ Disable switching UI without deleting logic
 
-const lightTheme = {
-  background: '#F9FAFB',
-  card: '#FFFFFF',
-  text: '#111827',
-  subText: '#6B7280',
-  divider: '#E5E7EB',
-  primary: '#1E3A8A',
-  secondary: '#DBEAFE',
-  danger: '#DC2626',
-  navInactive: '#9CA3AF',
-};
-
-const darkTheme = {
-  background: '#0F172A',
-  card: '#1E293B',
-  text: '#F9FAFB',
-  subText: '#94A3B8',
-  divider: '#334155',
-  primary: '#3B82F6',
-  secondary: '#e3e6f0ff',
-  danger: '#F87171',
-  navInactive: '#D1D5DB',
-};
 
 function displayNameFromProfile(p) {
   const first = String(p?.first_name || '').trim();
@@ -53,7 +30,7 @@ function displayNameFromProfile(p) {
 }
 
 export default function EmergencyContactSettings({ onNavigate, onSwitchToDriver }) {
-  const [isDarkMode, setIsDarkMode] = useState(false);
+  const { theme, isDark, toggleTheme } = useTheme();
   const [isDriverMode, setIsDriverMode] = useState(false);
   const [showDriverConfirm, setShowDriverConfirm] = useState(false);
   const [showLogoutConfirm, setShowLogoutConfirm] = useState(false);
@@ -72,7 +49,6 @@ export default function EmergencyContactSettings({ onNavigate, onSwitchToDriver 
   const [profileAvatarUrl, setProfileAvatarUrl] = useState(null);
   const [avatarCacheBust, setAvatarCacheBust] = useState(Date.now());
 
-  const theme = isDarkMode ? darkTheme : lightTheme;
 const { count: pendingInviteCount } = usePendingInviteCount();
 
   useEffect(() => {
@@ -225,10 +201,10 @@ const { count: pendingInviteCount } = usePendingInviteCount();
                   )}
                 </View>
                 <View>
-                  <Text style={[styles.name, { color: theme.text }]}>
+                  <Text style={[styles.name, { color: theme.textPrimary }]}>
                     {profileLoading ? 'Loading…' : profileName}
                   </Text>
-                  <Text style={[styles.email, { color: theme.subText }]}>
+                  <Text style={[styles.email, { color: theme.textSecondary }]}>
                     {profileLoading ? ' ' : profilePhone}
                   </Text>
                 </View>
@@ -268,74 +244,71 @@ const { count: pendingInviteCount } = usePendingInviteCount();
             <View style={[styles.card, { backgroundColor: theme.card }]}>
               <Pressable style={styles.listItem} onPress={() => onNavigate('connected-accounts')}>
                 <View style={styles.row}>
-                  <Feather name="users" size={20} color={theme.subText} />
-                  <Text style={[styles.itemTitle, { color: theme.text }]}>Connected drivers</Text>
+                  <Feather name="users" size={20} color={theme.iconPrimary} />
+                  <Text style={[styles.itemTitle, { color: theme.textPrimary }]}>Connected drivers</Text>
                 </View>
                 <Feather name="chevron-right" size={20} color={theme.navInactive} />
               </Pressable>
 
-              <View style={[styles.divider, { backgroundColor: theme.divider }]} />
+              <View style={[styles.divider, { backgroundColor: theme.border }]} />
 
               <View style={styles.listItem}>
                 <View style={styles.row}>
-                  <Ionicons name="moon-outline" size={20} color={theme.subText} />
-                  <Text style={[styles.itemTitle, { color: theme.text }]}>Dark Mode</Text>
+                  <Ionicons name="moon-outline" size={20} color={theme.iconPrimary} />
+                  <Text style={[styles.itemTitle, { color: theme.textPrimary }]}>Dark Mode</Text>
                 </View>
                 <Pressable
-                  style={[
-                    styles.toggle,
-                    { backgroundColor: isDarkMode ? theme.primary : theme.divider },
-                  ]}
-                  onPress={() => setIsDarkMode(!isDarkMode)}
+                  style={[styles.toggle, { backgroundColor: isDark ? theme.primary : theme.border }]}
+                  onPress={toggleTheme} 
                 >
-                  <View style={[styles.toggleKnob, isDarkMode && styles.toggleKnobOn]} />
+                  <View style={[styles.toggleKnob, isDark && styles.toggleKnobOn]} />
                 </Pressable>
               </View>
-              <View style={[styles.divider, { backgroundColor: theme.divider }]} />
+              <View style={[styles.divider, { backgroundColor: theme.border }]} />
               <Pressable
                 style={styles.listItem}
                 onPress={() => onNavigate('privacy-policy')}
               >
                 <View style={styles.row}>
-                  <Ionicons name="shield" size={20} color={theme.subText} />
-                  <Text style={[styles.itemTitle, { color: theme.text }]}>
+                  <Ionicons name="shield" size={20} color={theme.iconPrimary} />
+                  <Text style={[styles.itemTitle, { color: theme.textPrimary }]}>
                     Privacy Policy
                   </Text>
                 </View>
                 <Feather name="chevron-right" size={20} color={theme.navInactive} />
               </Pressable>
-              <View style={[styles.divider, { backgroundColor: theme.divider }]} />
+              <View style={[styles.divider, { backgroundColor: theme.border }]} />
               <Pressable
                 style={styles.listItem}
                 onPress={() => onNavigate('terms-of-service')}
               >
                 <View style={styles.row}>
-                  <Feather name="file-text" size={20} color={theme.subText} />
-                  <Text style={[styles.itemTitle, { color: theme.text }]}>
+                  <Feather name="file-text" size={20} color={theme.iconPrimary} />
+                  <Text style={[styles.itemTitle, { color: theme.textPrimary }]}>
                     Terms of Service
                   </Text>
                 </View>
                 <Feather name="chevron-right" size={20} color={theme.navInactive} />
               </Pressable>
-              <View style={[styles.divider, { backgroundColor: theme.divider }]} />
+              <View style={[styles.divider, { backgroundColor: theme.border }]} />
               <Pressable
                 style={styles.listItem}
                 onPress={() => onNavigate('about')}
               >
                 <View style={styles.row}>
-                  <Feather name="info" size={20} color={theme.subText} />
-                  <Text style={[styles.itemTitle, { color: theme.text }]}>
+                  <Feather name="info" size={20} color={theme.iconPrimary} />
+                  <Text style={[styles.itemTitle, { color: theme.textPrimary }]}>
                     About
                   </Text>
                 </View>
                 <Feather name="chevron-right" size={20} color={theme.navInactive} />
               </Pressable>
-
+              <View style={[styles.divider, { backgroundColor: theme.border }]} />
             </View>
 
             {/* Logout */}
             <Pressable
-              style={[styles.card, { backgroundColor: theme.card }]}
+              style={[styles.card, { backgroundColor: theme.card, marginTop: -24 }]}
               onPress={() => setShowLogoutConfirm(true)}
             >
               <View style={styles.rowBetween}>
@@ -355,9 +328,9 @@ const { count: pendingInviteCount } = usePendingInviteCount();
       {/* Logout confirm */}
       <Modal transparent visible={showLogoutConfirm} animationType="fade">
         <View style={styles.modalOverlay}>
-          <View style={styles.modalCard}>
-            <Text style={styles.modalTitle}>Log Out</Text>
-            <Text style={styles.modalText}>Are you sure you want to log out?</Text>
+          <View style={[styles.modalCard, { backgroundColor: theme.surface }]}>
+            <Text style={[styles.modalTitle, { color: theme.textPrimary }]}>Log Out</Text>
+            <Text style={[styles.modalText, { color: theme.textSecondary }]}>Are you sure you want to log out?</Text>
             <View style={styles.modalActions}>
               <Pressable onPress={() => setShowLogoutConfirm(false)}>
                 <Text style={styles.cancelText}>Cancel</Text>

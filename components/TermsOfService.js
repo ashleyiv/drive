@@ -16,7 +16,7 @@ export default function TermsOfService({ onBack }) {
       </View>
 
       <ScrollView contentContainerStyle={styles.content}>
-        <Text style={[styles.text, {color: theme.textPrimary }]}>1. Description of Service</Text>
+        <Text style={[styles.sectionTitle, {color: theme.textPrimary }]}>1. Description of Service</Text>
         <Text style={[styles.text, {color: theme.textPrimary }]}>
           D.R.I.V.E. provides a driver assistance monitoring system designed to
           detect driver fatigue/drowsiness and hand presence on the steering

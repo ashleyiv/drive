@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { View, Text, TextInput, Pressable, StyleSheet, Image } from 'react-native';
+import useTheme from '../theme/useTheme';
 
 const DEFAULT_EXPIRY_SECONDS = 300; // 5 minutes
 const DEFAULT_RESEND_COOLDOWN_SECONDS = 300; // 5 minutes
@@ -43,6 +44,7 @@ export default function OTPConfirmation({
   const [isResending, setIsResending] = useState(false);
   const [isVerifying, setIsVerifying] = useState(false);
   const [nowTick, setNowTick] = useState(Date.now());
+  const { theme } = useTheme();
 
   useEffect(() => {
     const id = setInterval(() => setNowTick(Date.now()), 1000);
@@ -160,7 +162,7 @@ export default function OTPConfirmation({
   };
 
   return (
-    <View style={styles.container}>
+    <View style={[styles.container, { backgroundColor: theme.background }]}>
       <View style={styles.content}>
         <View style={styles.iconWrapper}>
           <View style={styles.iconCircle}>
@@ -168,10 +170,10 @@ export default function OTPConfirmation({
           </View>
         </View>
 
-        <Text style={styles.title}>Almost there!</Text>
-        <Text style={styles.subtitle}>Enter the verification code sent to {email}</Text>
+        <Text style={[styles.title, {color: theme.textPrimary }]}>Almost there!</Text>
+        <Text style={[styles.subtitle, {color: theme.textSecondary }]}>Enter the verification code sent to {email}</Text>
 
-        <Text style={[styles.timer, isExpired && styles.expired]}>
+        <Text style={[styles.timer, {color: theme.tabBg}, isExpired && styles.expired]}>
           {isExpired ? 'Code expired' : `Code expires in ${formatTime(secondsLeft)}`}
         </Text>
 
@@ -182,24 +184,52 @@ export default function OTPConfirmation({
         )}
 
         <View style={styles.otpRow}>
-          {otp.map((digit, index) => (
-            <TextInput
-              key={index}
-              ref={(ref) => (inputsRef.current[index] = ref)}
-              style={[styles.otpInput, (isExpired || attemptsLeft === 0) && styles.disabledInput]}
-              keyboardType="number-pad"
-              maxLength={index === 0 ? OTP_LENGTH : 1}
-              value={digit}
-              editable={!isExpired && attemptsLeft > 0 && !isVerifying}
-              onChangeText={(value) => applyValueAt(index, value)}
-              onKeyPress={({ nativeEvent }) => handleKeyPress(index, nativeEvent.key)}
-            />
-          ))}
+          {otp.map((digit, index) => {
+            const disabled = isExpired || attemptsLeft === 0 || isVerifying;
+
+            return (
+              <TextInput
+                key={index}
+                ref={(ref) => (inputsRef.current[index] = ref)}
+                style={[
+                  styles.otpInput,
+                  {
+                    backgroundColor: disabled
+                      ? theme.disabledInputBackground
+                      : theme.inputBackground,
+                    color: theme.inputText,
+                    borderColor: theme.border,
+                  },
+                ]}
+                keyboardType="number-pad"
+                maxLength={index === 0 ? OTP_LENGTH : 1}
+                value={digit}
+                editable={!disabled}
+                onChangeText={(value) => applyValueAt(index, value)}
+                onKeyPress={({ nativeEvent }) =>
+                  handleKeyPress(index, nativeEvent.key)
+                }
+              />
+            );
+          })}
         </View>
+
 
         {error !== '' && <Text style={styles.error}>{error}</Text>}
 
-        <Pressable style={[styles.primaryButton, disableVerify && styles.disabledButton]} onPress={handleSubmit} disabled={disableVerify}>
+        <Pressable
+          style={[
+            styles.primaryButton,
+            {
+              backgroundColor: disableVerify
+                ? theme.disabledInputBackground
+                : theme.primary,
+            },
+          ]}
+          onPress={handleSubmit}
+          disabled={disableVerify}
+        >
+
           <Text style={styles.primaryText}>{isVerifying ? 'Verifying...' : 'Continue'}</Text>
         </Pressable>
 
@@ -208,14 +238,14 @@ export default function OTPConfirmation({
           onPress={handleResend}
           disabled={!canResend || isResending}
         >
-          <Text style={styles.outlineText}>
+          <Text style={[styles.outlineText, {color: theme.idleText }]}>
             {isResending ? 'Sending...' : cooldownLeft > 0 ? `Resend in ${formatTime(cooldownLeft)}` : 'Resend Code'}
           </Text>
         </Pressable>
 
         {onBack && (
           <Pressable style={styles.backButton} onPress={onBack} disabled={isVerifying || isResending}>
-            <Text style={styles.backText}>← Back</Text>
+            <Text style={[styles.backText, {color: theme.textSecondary }]}>← Back</Text>
           </Pressable>
         )}
       </View>

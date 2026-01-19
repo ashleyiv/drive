@@ -525,11 +525,11 @@ const handleGoBack = () => {
       )}
 
       {currentScreen === 'new-password' && (
-  <NewPassword
-    onSubmit={handleNewPasswordSubmit}
-    onBack={() => setCurrentScreen('forgot-otp')}
-  />
-)}
+        <NewPassword
+          onSubmit={handleNewPasswordSubmit}
+          onBack={() => setCurrentScreen('forgot-otp')}
+        />
+      )}
 
       {/* DRIVER MODE */}
       {userMode === 'driver' && currentScreen === 'dashboard' && (
@@ -541,12 +541,12 @@ const handleGoBack = () => {
       )}
 
       {currentScreen === 'history' && (
-  <History
-    onNavigate={handleNavigate}
-    navParams={navParams}
-    clearNavParams={() => setNavParams(null)}
-  />
-)}
+        <History
+          onNavigate={handleNavigate}
+          navParams={navParams}
+          clearNavParams={() => setNavParams(null)}
+        />
+      )}
 
       {currentScreen === 'location' && <LocationView onNavigate={handleNavigate} location={currentLocation} />}
       {currentScreen === 'contacts' && <Contacts onNavigate={handleNavigate} />}

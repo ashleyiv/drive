@@ -801,7 +801,7 @@ useEffect(() => {
           </Text>
         </View>
 
-        <Text style={{ fontSize: 14, fontWeight: '900', color: theme.textPrimary, marginBottom: 10 }}>
+        <Text style={{ fontSize: 14, fontWeight: '900', color: theme.textPrimary, marginBottom: 10, marginLeft: 14, }}>
           Accepted requests
         </Text>
 
@@ -821,15 +821,15 @@ useEffect(() => {
             <View
               key={n.id}
               style={{
-                backgroundColor: 'white',
+                backgroundColor: theme.surface,
                 borderRadius: 14,
                 borderWidth: 1,
-                borderColor: '#E5E7EB',
+                borderColor: theme.border,
                 padding: 14,
                 marginBottom: 10,
               }}
             >
-              <Text style={{ color: '#111827', fontWeight: '900' }}>
+              <Text style={{ color: theme.idleText, fontWeight: '700' }}>
                 {n.displayName} accepted your request to be your emergency contact.
               </Text>
               <Text style={{ marginTop: 6, color: '#6B7280', fontWeight: '700', fontSize: 12 }}>
@@ -940,28 +940,28 @@ async function stopLocationStreaming(subscription) {
     />
 
       {/* ✅ Header (match screenshot) */}
-      <View style={s.header}>
+      <View style={[s.header, { backgroundColor: theme.primary }]}>
         <View style={s.headerLeftCircle}>
-          <Ionicons name="car-sport" size={18} color="#1E88E5" />
+          <Ionicons name="car-sport" size={18} color={theme.primary} />
         </View>
 
         <Text style={s.headerTitle}>D.R.I.V.E.</Text>
 
        <TouchableOpacity onPress={() => setShowNotifications(true)} style={s.headerBell}>
-  <View style={{ position: 'relative' }}>
-    <Animated.View style={{ transform: [{ rotate: bellRotate }] }}>
-      <Feather name="bell" size={22} color="#fff" />
-    </Animated.View>
+          <View style={{ position: 'relative' }}>
+            <Animated.View style={{ transform: [{ rotate: bellRotate }] }}>
+              <Feather name="bell" size={22} color="#fff" />
+            </Animated.View>
 
-    {pendingInviteCount > 0 && (
-      <View style={s.bellBadge}>
-        <Text style={s.bellBadgeText}>
-          {pendingInviteCount > 99 ? '99+' : String(pendingInviteCount)}
-        </Text>
-      </View>
-    )}
-  </View>
-</TouchableOpacity>
+            {pendingInviteCount > 0 && (
+              <View style={s.bellBadge}>
+                <Text style={s.bellBadgeText}>
+                  {pendingInviteCount > 99 ? '99+' : String(pendingInviteCount)}
+                </Text>
+              </View>
+            )}
+          </View>
+        </TouchableOpacity>
 
       </View>
 
@@ -1074,8 +1074,8 @@ async function stopLocationStreaming(subscription) {
             </View>
 
             <Text style={s.deviceTime}>
-  {connectedDevice ? (connectedDurationLabel || '0m') : ''}
-</Text>
+              {connectedDevice ? (connectedDurationLabel || '0m') : ''}
+            </Text>
 
           </TouchableOpacity>
 
@@ -1107,7 +1107,7 @@ async function stopLocationStreaming(subscription) {
       {/* Device modal (UNCHANGED logic, only kept as-is) */}
       <Modal visible={deviceModalVisible} transparent animationType="fade">
         <View style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.45)', justifyContent: 'center', alignItems: 'center', paddingHorizontal: 18 }}>
-          <View style={{ width: '100%', backgroundColor: theme.background, borderRadius: 16, padding: 16 }}>
+          <View style={{ width: '100%', backgroundColor: theme.surface, borderRadius: 16, padding: 16 }}>
             <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
               <Text style={{ fontSize: 16, fontWeight: '700', color: theme.textPrimary }}>Bluetooth Devices</Text>
               <Pressable onPress={closeDeviceModal}>

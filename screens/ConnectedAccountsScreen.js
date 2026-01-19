@@ -16,6 +16,7 @@ import { Feather, Entypo } from '@expo/vector-icons';
 import { supabase } from '../lib/supabase';
 import { formatPHPretty } from '../lib/phonePH';
 import { resolveAvatarUrl } from '../lib/avatar';
+import useTheme from '../theme/useTheme';
 
 function displayNameFromProfile(p) {
   const first = String(p?.first_name || '').trim();
@@ -24,32 +25,8 @@ function displayNameFromProfile(p) {
   return full || String(p?.email || 'Driver');
 }
 
-export default function ConnectedAccountsScreen({ onNavigate, isDarkMode = false }) {
-  const theme = useMemo(() => {
-    if (isDarkMode) {
-      return {
-        background: '#0F172A',
-        card: '#1E293B',
-        text: '#F9FAFB',
-        subText: '#94A3B8',
-        divider: '#334155',
-        primary: '#3B82F6',
-        danger: '#F87171',
-        secondary: '#e3e6f0ff',
-      };
-    }
-    return {
-      background: '#F9FAFB',
-      card: '#FFFFFF',
-      text: '#111827',
-      subText: '#6B7280',
-      divider: '#E5E7EB',
-      primary: '#1E3A8A',
-      danger: '#DC2626',
-      secondary: '#DBEAFE',
-    };
-  }, [isDarkMode]);
-
+export default function ConnectedAccountsScreen({ onNavigate }) {
+  const { theme, isDark, toggleTheme } = useTheme();
   const [loading, setLoading] = useState(true);
   const [accounts, setAccounts] = useState([]);
 
@@ -188,7 +165,7 @@ export default function ConnectedAccountsScreen({ onNavigate, isDarkMode = false
 
   const renderItem = ({ item }) => {
     return (
-      <View style={[styles.card, { backgroundColor: theme.card, borderColor: theme.divider }]}>
+      <View style={[styles.card, { backgroundColor: theme.surface, borderColor: theme.border }]}>
         <View style={styles.rowBetween}>
           <View style={styles.row}>
             <View style={[styles.avatar, { backgroundColor: theme.secondary }]}>
@@ -200,13 +177,13 @@ export default function ConnectedAccountsScreen({ onNavigate, isDarkMode = false
             </View>
 
             <View style={{ flex: 1 }}>
-              <Text style={[styles.name, { color: theme.text }]} numberOfLines={1}>
+              <Text style={[styles.name, { color: theme.textPrimary }]} numberOfLines={1}>
                 {item.name}
               </Text>
-              <Text style={[styles.sub, { color: theme.subText }]} numberOfLines={1}>
+              <Text style={[styles.sub, { color: theme.textSecondary }]} numberOfLines={1}>
                 {item.email}
               </Text>
-              <Text style={[styles.sub, { color: theme.subText }]} numberOfLines={1}>
+              <Text style={[styles.sub, { color: theme.textSecondary }]} numberOfLines={1}>
                 {item.phone}
               </Text>
             </View>
@@ -240,12 +217,12 @@ export default function ConnectedAccountsScreen({ onNavigate, isDarkMode = false
       {loading ? (
         <View style={{ paddingTop: 30, alignItems: 'center' }}>
           <ActivityIndicator />
-          <Text style={{ marginTop: 10, color: theme.subText, fontWeight: '700' }}>Loading…</Text>
+          <Text style={{ marginTop: 10, color: theme.textSecondary, fontWeight: '700' }}>Loading…</Text>
         </View>
       ) : accounts.length === 0 ? (
         <View style={{ paddingTop: 34, alignItems: 'center', paddingHorizontal: 18 }}>
-          <Feather name="users" size={38} color={theme.divider} />
-          <Text style={{ marginTop: 10, color: theme.subText, fontWeight: '800', textAlign: 'center' }}>
+          <Feather name="users" size={38} color={theme.textSecondary} />
+          <Text style={{ marginTop: 10, color: theme.textSecondary, fontWeight: '800', textAlign: 'center' }}>
             No connected drivers yet
           </Text>
         </View>

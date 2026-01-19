@@ -16,6 +16,7 @@ import {
 import { Ionicons } from '@expo/vector-icons';
 import { normalizePHToDigits10, normalizePHToE164 } from '../lib/phonePH';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import useTheme from '../theme/useTheme';
 
 const handleLoginSuccess = async () => {
   // Reset coach mark for this session
@@ -27,6 +28,7 @@ const handleLoginSuccess = async () => {
 
 
 export default function SignupScreen({ onSignup, onBackToLogin }) {
+  const { theme } = useTheme();
   const [email, setEmail] = useState('');
   const [firstName, setFirstName] = useState('');
   const [lastName, setLastName] = useState('');
@@ -265,61 +267,66 @@ export default function SignupScreen({ onSignup, onBackToLogin }) {
 
   if (showTerms) {
     return (
-      <View style={styles.container}>
+      <View style={[styles.container, {backgroundColor: theme.background }]}>
         <Pressable
           style={styles.backButton}
           onPress={() => !loading && setShowTerms(false)}
           disabled={loading}
         >
-          <Ionicons name="chevron-back" size={24} color="#111827" />
-          <Text style={styles.backText}>Back</Text>
+          <Ionicons name="chevron-back" size={24} color={theme.idleText}/>
+          <Text style={[styles.backText, {color: theme.idleText }]}>Back</Text>
         </Pressable>
 
-        <Text style={styles.title}>Terms and Conditions</Text>
+        <Text style={[styles.title, {color: theme.textPrimary }]}>Terms and Conditions</Text>
         <ScrollView style={styles.termsContainer} keyboardShouldPersistTaps="handled">
-          <Text style={styles.sectionTitle}>1. Acceptance of Terms</Text>
-          <Text style={styles.paragraph}>
+          <Text style={[styles.sectionTitle, {color: theme.textPrimary }]}>1. Acceptance of Terms</Text>
+          <Text style={[styles.paragraph, {color: theme.textSecondary }]}>
             By using the DRIVE drowsiness detection application, you agree to be bound by these Terms and Conditions.
           </Text>
 
-          <Text style={styles.sectionTitle}>2. Use of Service</Text>
-          <Text style={styles.paragraph}>
+          <Text style={[styles.sectionTitle, {color: theme.textPrimary }]}>2. Use of Service</Text>
+          <Text style={[styles.paragraph, {color: theme.textSecondary }]}>
             The DRIVE app monitors driver drowsiness and provides alerts. It does not replace responsible driving.
           </Text>
 
-          <Text style={styles.sectionTitle}>3. Data Collection</Text>
-          <Text style={styles.paragraph}>
+          <Text style={[styles.sectionTitle, {color: theme.textPrimary }]}>3. Data Collection</Text>
+          <Text style={[styles.paragraph, {color: theme.textSecondary }]}>
             The app collects data including eye-lid monitoring, steering wheel grip, yawning, head tilting, and location during drowsiness events.
           </Text>
 
-          <Text style={styles.sectionTitle}>4. Privacy</Text>
-          <Text style={styles.paragraph}>
+          <Text style={[styles.sectionTitle, {color: theme.textPrimary }]}>4. Privacy</Text>
+          <Text style={[styles.paragraph, {color: theme.textSecondary }]}>
             Your data is stored securely and will not be shared without consent, except as required by law.
           </Text>
 
-          <Text style={styles.sectionTitle}>5. Liability</Text>
-          <Text style={styles.paragraph}>
+          <Text style={[styles.sectionTitle, {color: theme.textPrimary }]}>5. Liability</Text>
+          <Text style={[styles.paragraph, {color: theme.textSecondary }]}>
             DRIVE is an assistive technology. Users remain responsible for safe driving.
           </Text>
 
-          <Text style={styles.sectionTitle}>6. Emergency Contacts</Text>
-          <Text style={styles.paragraph}>
+          <Text style={[styles.sectionTitle, {color: theme.textPrimary }]}>6. Emergency Contacts</Text>
+          <Text style={[styles.paragraph, {color: theme.textSecondary }]}>
             You authorize the app to contact your emergency contacts in critical events.
           </Text>
 
-          <Text style={styles.sectionTitle}>7. Updates</Text>
-          <Text style={styles.paragraph}>
+          <Text style={[styles.sectionTitle, {color: theme.textPrimary }]}>7. Updates</Text>
+          <Text style={[styles.paragraph, {color: theme.textSecondary }]}>
             Terms may be updated at any time. Continued use constitutes acceptance.
           </Text>
         </ScrollView>
 
         <Pressable
-          style={[styles.primaryButton, loading && styles.disabledButton]}
+          style={[
+            styles.primaryButton,
+            { backgroundColor: theme.primary }, // use theme.primary
+            loading && styles.disabledButton
+          ]}
           onPress={() => !loading && setShowTerms(false)}
           disabled={loading}
         >
           <Text style={styles.primaryText}>Close</Text>
         </Pressable>
+
       </View>
     );
   }
@@ -332,16 +339,16 @@ export default function SignupScreen({ onSignup, onBackToLogin }) {
     >
       <TouchableWithoutFeedback onPress={Keyboard.dismiss} accessible={false}>
         <ScrollView
-          contentContainerStyle={styles.container}
+          contentContainerStyle={[styles.container, { backgroundColor: theme.background }]}
           keyboardShouldPersistTaps="handled"
         >
           <Pressable onPress={onBackToLogin} style={styles.backButton} disabled={loading}>
-            <Ionicons name="chevron-back" size={24} color="#111827" />
-            <Text style={styles.backText}>Back to Login</Text>
+            <Ionicons name="chevron-back" size={24} color={theme.idleText} />
+            <Text style={[styles.backText, { color: theme.idleText }]}>Back to Login</Text>
           </Pressable>
 
-          <Text style={styles.title}>Create Account</Text>
-          <Text style={styles.subtitle}>Sign up to start using DRIVE</Text>
+          <Text style={[styles.title, { color: theme.textPrimary }]}>Create Account</Text>
+          <Text style={[styles.subtitle, { color: theme.textSecondary }]}>Sign up to start using DRIVE</Text>
 
           {/* Email */}
           {renderInput({
@@ -380,12 +387,13 @@ export default function SignupScreen({ onSignup, onBackToLogin }) {
 
           {/* Phone */}
           <View style={styles.field}>
-            <Text style={styles.label}>Phone Number</Text>
-            <View style={[styles.phoneRow, loading && styles.disabledField]}>
-              <Text style={styles.phonePrefix}>+63</Text>
+            <Text style={[styles.label, { color: theme.textSecondary }]}>Phone Number</Text>
+            <View style={[styles.phoneRow, { backgroundColor: theme.inputBackground, borderColor: theme.border }, loading && styles.disabledField]}>
+              <Text style={[styles.phonePrefix, { color: theme.textPrimary }]}>+63</Text>
               <TextInput
-                style={styles.phoneInput}
+                style={[styles.phoneInput, { color: theme.textPrimary }]}
                 placeholder="9XXXXXXXXX"
+                placeholderTextColor={theme.placeholder}
                 keyboardType="phone-pad"
                 value={phoneDigits}
                 onChangeText={(t) => setPhoneDigits(normalizePHToDigits10(t))}
@@ -397,15 +405,17 @@ export default function SignupScreen({ onSignup, onBackToLogin }) {
           </View>
           {!!uiPhoneError && <Text style={styles.error}>{uiPhoneError}</Text>}
 
+
           {/* Password (with eye) */}
           <View style={styles.field}>
-            <Text style={styles.label}>Password</Text>
-            <View style={[styles.passwordRow, loading && styles.disabledField]}>
+            <Text style={[styles.label, { color: theme.textSecondary }]}>Password</Text>
+            <View style={[styles.passwordRow, { backgroundColor: theme.inputBackground, borderColor: theme.border }, loading && styles.disabledField]}>
               <TextInput
-                style={styles.passwordInput}
+                style={[styles.passwordInput, { color: theme.textPrimary }]}
                 value={password}
                 onChangeText={setPassword}
                 placeholder="Password"
+                placeholderTextColor={theme.placeholder}
                 secureTextEntry={!showPassword}
                 editable={!loading}
                 onFocus={() => setTouched((s) => ({ ...s, password: true }))}
@@ -419,29 +429,28 @@ export default function SignupScreen({ onSignup, onBackToLogin }) {
                 <Ionicons
                   name={showPassword ? 'eye-off-outline' : 'eye-outline'}
                   size={20}
-                  color="#6B7280"
+                  color={theme.primary}
                 />
               </Pressable>
             </View>
-
-            {/* strength meter (only after user focused password) */}
             {touched.password && password ? (
-              <Text style={styles.strengthText}>
-                Strength: <Text style={styles.strengthBold}>{passwordStrength.label}</Text>
+              <Text style={[styles.strengthText, { color: theme.textSecondary }]}>
+                Strength: <Text style={[styles.strengthBold, { color: theme.textPrimary }]}>{passwordStrength.label}</Text>
               </Text>
             ) : null}
           </View>
           {!!uiPasswordError && <Text style={styles.error}>{uiPasswordError}</Text>}
 
-          {/* Confirm Password (with eye) */}
+          {/* Confirm Password */}
           <View style={styles.field}>
-            <Text style={styles.label}>Confirm Password</Text>
-            <View style={[styles.passwordRow, loading && styles.disabledField]}>
+            <Text style={[styles.label, { color: theme.textSecondary }]}>Confirm Password</Text>
+            <View style={[styles.passwordRow, { backgroundColor: theme.inputBackground, borderColor: theme.border }, loading && styles.disabledField]}>
               <TextInput
-                style={styles.passwordInput}
+                style={[styles.passwordInput, { color: theme.textPrimary }]}
                 value={confirmPassword}
                 onChangeText={setConfirmPassword}
                 placeholder="Confirm password"
+                placeholderTextColor={theme.placeholder}
                 secureTextEntry={!showConfirm}
                 editable={!loading}
                 onFocus={() => setTouched((s) => ({ ...s, confirm: true }))}
@@ -455,12 +464,13 @@ export default function SignupScreen({ onSignup, onBackToLogin }) {
                 <Ionicons
                   name={showConfirm ? 'eye-off-outline' : 'eye-outline'}
                   size={20}
-                  color="#6B7280"
+                  color={theme.primary}
                 />
               </Pressable>
             </View>
           </View>
           {!!uiConfirmError && <Text style={styles.error}>{uiConfirmError}</Text>}
+
 
           {/* Terms */}
           <Pressable
@@ -472,22 +482,32 @@ export default function SignupScreen({ onSignup, onBackToLogin }) {
             }}
             disabled={loading}
           >
-            <Text style={styles.checkbox}>{agreedToTerms ? '☑' : '☐'}</Text>
-            <Text style={styles.termsText}>
+            <Text style={[styles.checkbox, { color: theme.textPrimary }]}>
+              {agreedToTerms ? '☑' : '☐'}
+            </Text>
+            <Text style={[styles.termsText, { color: theme.textPrimary }]}>
               I agree to the{' '}
-              <Text style={styles.link} onPress={() => !loading && setShowTerms(true)}>
+              <Text
+                style={[styles.link, { color: theme.primary }]}
+                onPress={() => !loading && setShowTerms(true)}
+              >
                 Terms and Conditions
               </Text>
             </Text>
           </Pressable>
           {!!uiTermsError && <Text style={styles.error}>{uiTermsError}</Text>}
 
+
           {/* Sign up */}
           <Pressable
-            style={[styles.primaryButton, !formReady && styles.disabledButton]}
+            style={[
+              styles.primaryButton,
+              { backgroundColor: theme.primary }, // use theme.primary
+              !formReady && styles.disabledButton
+            ]}
             disabled={!formReady}
             onPress={handleSubmit}
-          >
+>
             {loading ? (
               <View style={styles.loadingRow}>
                 <ActivityIndicator size="small" color="#fff" />
@@ -516,11 +536,16 @@ function renderInput({
   maxLength,
   onFocus,
 }) {
+  const { theme } = useTheme();
   return (
     <View style={styles.field}>
-      <Text style={styles.label}>{label}</Text>
+      <Text style={[styles.label, { color: theme.textSecondary }]}>{label}</Text>
       <TextInput
-        style={[styles.input, disabled && styles.disabledField]}
+        style={[
+          styles.input,
+          { backgroundColor: theme.inputBackground, color: theme.textPrimary, borderColor: theme.border },
+          disabled && styles.disabledField,
+        ]}
         value={value}
         onChangeText={onChange}
         keyboardType={keyboardType}
@@ -592,7 +617,7 @@ const styles = StyleSheet.create({
   strengthBold: { fontWeight: '900', color: '#111827' },
 
   termsRow: { flexDirection: 'row', alignItems: 'flex-start', marginTop: 10, marginBottom: 6 },
-  checkbox: { fontSize: 18, marginRight: 10, marginTop: 1 },
+  checkbox: { fontSize: 18, marginRight: 10, marginTop: -3 },
   termsText: { fontSize: 14, color: '#111827', flex: 1, fontWeight: '700' },
   link: { color: '#2563EB', fontWeight: '900' },
 

@@ -1,6 +1,7 @@
 // driveash/components/ModeSwitchLoadingScreen.js
 import React, { useEffect, useRef } from 'react';
 import { View, Text, Animated, Easing } from 'react-native';
+import useTheme from '../theme/useTheme';
 
 export default function ModeSwitchLoadingScreen({
   title = 'Loading…',
@@ -8,6 +9,7 @@ export default function ModeSwitchLoadingScreen({
   durationMs = 1800,
   onDone,
 }) {
+  const { theme, isDark, toggleTheme } = useTheme();
   const progress = useRef(new Animated.Value(0)).current;
   const doneRef = useRef(false);
 const onDoneRef = useRef(onDone);
@@ -50,9 +52,9 @@ useEffect(() => {
   });
 
   return (
-    <View style={{ flex: 1, backgroundColor: 'white', justifyContent: 'center', alignItems: 'center' }}>
-      <Text style={{ fontSize: 16, fontWeight: '900', color: '#111827' }}>{title}</Text>
-      <Text style={{ marginTop: 6, fontSize: 12, fontWeight: '700', color: '#6B7280' }}>{subtitle}</Text>
+    <View style={{ flex: 1, backgroundColor: theme.background, justifyContent: 'center', alignItems: 'center' }}>
+      <Text style={{ fontSize: 16, fontWeight: '900', color: theme.textPrimary }}>{title}</Text>
+      <Text style={{ marginTop: 6, fontSize: 12, fontWeight: '700', color: theme.textSecondary }}>{subtitle}</Text>
 
       <View
         style={{

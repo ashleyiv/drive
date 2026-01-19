@@ -212,7 +212,7 @@ export default function Menu({
   return (
     <View style={[styles.container, { backgroundColor: theme.background }]}>
       <TouchableOpacity
-        style={[styles.profileCard, { backgroundColor: theme.cardBackground }]}
+        style={[styles.profileCard, { backgroundColor: theme.primary }]}
         onPress={() => setShowAccountSettings(true)}
       >
         <View style={[styles.avatar, { backgroundColor: theme.iconColor, overflow: 'hidden' }]}>
@@ -277,7 +277,7 @@ export default function Menu({
         {menuItems.map((item, index) => (
           <TouchableOpacity
             key={index}
-            style={[styles.menuItem, { borderColor: theme.borderColor }]}
+            style={[styles.menuItem, { borderColor: theme.border }, index === menuItems.length - 1 ? { borderBottomWidth: 0 } : {}]}
             onPress={item.action}
           >
             <View style={styles.menuItemLeft}>
@@ -337,8 +337,8 @@ export default function Menu({
             <Text style={[styles.modalText, {color: theme.textSecondary }]}>Are you sure you want to log out?</Text>
 
             <View style={styles.modalActions}>
-              <Pressable style={[styles.modalButton, styles.cancelButton, {backgroundColor: theme.textSecondary,}]} onPress={() => setShowLogoutConfirm(false)}>
-                <Text style={styles.cancelText}>Cancel</Text>
+              <Pressable style={[styles.modalButton, styles.cancelButton, {backgroundColor: theme.idleBg,}]} onPress={() => setShowLogoutConfirm(false)}>
+                <Text style={[styles.cancelText, {color: theme.textPrimary }]}>Cancel</Text>
               </Pressable>
 
               <Pressable
@@ -384,6 +384,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     padding: 16,
+    marginTop: 48,
     margin: 16,
     borderRadius: 12,
   },

@@ -15,6 +15,7 @@ import { supabase } from '../lib/supabase';
 import { getUsersAvatarUrls, resolveAvatarUrl } from '../lib/avatar'; // ✅ add
 import BottomNav from './BottomNav';
 import { usePendingInviteCount } from '../lib/usePendingInviteCount';
+import useTheme from '../theme/useTheme';
 const Button = ({ onPress, children, style, variant }) => {
   const buttonStyle = [styles.button, style, variant === 'outline' ? styles.outlineButton : null];
   return (
@@ -32,6 +33,7 @@ function displayNameFromProfile(p) {
 }
 
 export default function EmergencyContactNotifications({ onNavigate }) {
+  const { theme } = useTheme();
   const [loading, setLoading] = useState(true);
     const { count: pendingInviteCount } = usePendingInviteCount();
 
@@ -220,7 +222,7 @@ export default function EmergencyContactNotifications({ onNavigate }) {
     return (
       <View
         style={[
-          styles.notificationCard,
+          styles.notificationCard, { backgroundColor: theme.surface },
           isLevel3 && { borderWidth: 1, borderColor: '#DC2626' },
         ]}
       >
@@ -248,14 +250,17 @@ export default function EmergencyContactNotifications({ onNavigate }) {
           </View>
 
           <View style={styles.textContent}>
-            <Text style={[styles.message, isLevel3 && { color: '#DC2626', fontWeight: '700' }]}>
+            <Text style={[styles.message, {color: theme.textPrimary }, isLevel3 && { color: '#DC2626', fontWeight: '700' }]}>
               {item.message}
             </Text>
             <Text style={styles.timestamp}>{item.timestamp}</Text>
 
             {item.type === 'invite' && item.status === 'pending' && (
               <View style={styles.actionButtons}>
-                <Button onPress={() => handleAccept(item.requestRowId)} style={styles.acceptButton}>
+                <Button onPress={() => handleAccept(item.requestRowId)} style={[
+                  styles.acceptButton,
+                  { backgroundColor: theme.primary },
+                ]}>
                   <MaterialIcons name="check" size={16} color="white" />
                   <Text style={styles.acceptText}> Accept</Text>
                 </Button>
@@ -290,8 +295,8 @@ export default function EmergencyContactNotifications({ onNavigate }) {
   };
 
   return (
-    <View style={styles.container}>
-      <View style={styles.header}>
+    <View style={[styles.container, { backgroundColor: theme.background }]}>
+      <View style={[styles.header, { backgroundColor: theme.primary }]}>
         <Text style={styles.headerTitle}>Notifications</Text>
         <Text style={styles.headerSubtitle}>Invites and alerts</Text>
       </View>
@@ -322,6 +327,7 @@ export default function EmergencyContactNotifications({ onNavigate }) {
   activeKey="notifications"
   onNavigate={onNavigate}
   notificationCount={pendingInviteCount}
+  theme={theme}
 />
 
     </View>
@@ -337,7 +343,6 @@ const styles = StyleSheet.create({
   listContainer: { flex: 1, padding: 16 },
 
   notificationCard: {
-    backgroundColor: 'white',
     borderRadius: 12,
     padding: 12,
     shadowColor: '#000',

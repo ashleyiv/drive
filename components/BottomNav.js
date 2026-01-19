@@ -116,7 +116,7 @@ export default function BottomNav({
 
   // Theme-aware colors (only used if you pass theme from Menu.js)
   const colors = {
-    navBg: theme?.navBackground ?? '#fff',
+    navBg: theme?.background ?? '#fff',
     border: theme?.borderColor ?? '#E5E7EB',
     activeBg: theme?.navActiveBackground ?? '#3B82F6',
     activeIcon: theme?.navActiveText ?? '#fff',

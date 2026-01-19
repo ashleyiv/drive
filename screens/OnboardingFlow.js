@@ -6,7 +6,7 @@ import {
   StyleSheet,
   Image,
 } from 'react-native';
-
+import useTheme from '../theme/useTheme';
 import onboardSteering from '../assets/onboard-steering.png';
 import onboardGeo from '../assets/onboard-geo.png';
 import onboardVoice from '../assets/onboard-voice.png';
@@ -30,6 +30,7 @@ const onboardingScreens = [
 ];
 
 export default function OnboardingFlow({ onComplete }) {
+  const { theme } = useTheme();
   const [currentIndex, setCurrentIndex] = useState(0);
 
   const handleNext = () => {

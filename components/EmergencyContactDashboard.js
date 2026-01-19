@@ -996,7 +996,7 @@ useEffect(() => {
       />
 
       {/* Header with Bluetooth button */}
-      <View style={styles.header}>
+      <View style={[styles.header, { backgroundColor: theme.primary }]}>
         <View style={{ flex: 1 }}>
           <Text style={styles.headerTitle}>Connected Drivers</Text>
           <Text style={styles.headerSubtitle}>Monitor drivers who added you</Text>
@@ -1026,9 +1026,9 @@ useEffect(() => {
       {/* Auto-connect overlay */}
       {autoConnectLoading && (
         <View style={styles.autoConnectOverlay}>
-          <View style={styles.autoConnectBox}>
+          <View style={[styles.autoConnectBox, {backgroundColor: theme.surface }]}>
             <ActivityIndicator />
-            <Text style={styles.autoConnectText}>Auto-connecting to D.R.I.V.E…</Text>
+            <Text style={[styles.autoConnectText, {color: theme.textPrimary }]}>Auto-connecting to D.R.I.V.E…</Text>
           </View>
         </View>
       )}
@@ -1059,10 +1059,10 @@ useEffect(() => {
     return (
       <TouchableOpacity
           key={driver.id}
-  style={[styles.driverCard, { backgroundColor: theme.surface }]}
-  onPress={() => openBigMapForDriver(driver.id)}   // ✅ whole card opens Big Map
-  onLongPress={() => handleDriverPress(driver)}     // ✅ optional: keep old behavior (danger modal / view driver)
-  delayLongPress={350}
+          style={[styles.driverCard, { backgroundColor: theme.surface }]}
+          onPress={() => openBigMapForDriver(driver.id)}   // ✅ whole card opens Big Map
+          onLongPress={() => handleDriverPress(driver)}     // ✅ optional: keep old behavior (danger modal / view driver)
+          delayLongPress={350}
       >
         <View style={styles.driverInfo}>
           <View style={styles.avatar}>
@@ -1079,7 +1079,7 @@ useEffect(() => {
 
           <View style={{ flex: 1 }}>
            <View style={styles.driverHeader}>
-  <Text style={styles.driverName}>{driver.name}</Text>
+  <Text style={[styles.driverName, {color: theme.textPrimary}]}>{driver.name}</Text>
 
   {/* ✅ Right-side badges row */}
   <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
@@ -1217,6 +1217,7 @@ useEffect(() => {
   activeKey="drivers"
   onNavigate={onNavigate}
   notificationCount={pendingInviteCount}
+  theme={theme}
 />
 
 
@@ -1246,22 +1247,22 @@ useEffect(() => {
       {/* ✅ BIG MAP MODAL + HISTORY DETAILS STYLE CARD */}
       <Modal visible={showBigMap} transparent animationType="fade">
         <View style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.45)', justifyContent: 'center', paddingHorizontal: 16 }}>
-          <View style={{ backgroundColor: 'white', borderRadius: 16, overflow: 'hidden', maxHeight: '88%' }}>
+          <View style={{ backgroundColor: theme.modalBackground, borderRadius: 16, overflow: 'hidden', maxHeight: '88%' }}>
             <ScrollView contentContainerStyle={{ paddingBottom: 14 }}>
               {/* Header */}
               <View style={{ paddingHorizontal: 14, paddingTop: 12, paddingBottom: 10, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
                 <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10, flex: 1 }}>
                   <Pressable onPress={closeBigMap} style={{ paddingRight: 4, paddingVertical: 4 }}>
-                    <Ionicons name="chevron-back" size={22} color="#111827" />
+                    <Ionicons name="chevron-back" size={22} color={theme.textPrimary} />
                   </Pressable>
 
-                  <Text style={{ fontSize: 16, fontWeight: '900', color: '#111827' }}>
+                  <Text style={{ fontSize: 16, fontWeight: '900', color: theme.textPrimary }}>
                     History Details
                   </Text>
                 </View>
 
                 <Pressable onPress={closeBigMap}>
-                  <Ionicons name="close" size={22} color="#111827" />
+                  <Ionicons name="close" size={22} color={theme.textPrimary} />
                 </Pressable>
               </View>
 
@@ -1270,14 +1271,14 @@ useEffect(() => {
                 {/* Level + time ago */}
                 <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
                  <Text
-  style={{
-    color: warningPalette(bigMapDriver?.warningLevel ?? null).text,
-    fontWeight: '900',
-    fontSize: 12,
-  }}
->
-  {bigMapDriver?.warningLevel ? warningLabel(bigMapDriver.warningLevel) : 'NO WARNING'}
-</Text>
+                    style={{
+                      color: warningPalette(bigMapDriver?.warningLevel ?? null).text,
+                      fontWeight: '900',
+                      fontSize: 12,
+                    }}
+                    >
+                    {bigMapDriver?.warningLevel ? warningLabel(bigMapDriver.warningLevel) : 'NO WARNING'}
+                  </Text>
 
                   <Text style={{ color: '#9CA3AF', fontWeight: '800', fontSize: 11 }}>
                     {bigMapDriver?.warningCreatedAt ? timeAgoText(bigMapDriver.warningCreatedAt) : '—'}

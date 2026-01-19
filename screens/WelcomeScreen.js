@@ -1,20 +1,26 @@
 import React from 'react';
 import { View, Text, TouchableOpacity, Image, StyleSheet, StatusBar } from 'react-native';
 import driveLogo from '../assets/drivelogo.png';
+import useTheme from '../theme/useTheme';
 
 export default function WelcomeScreen({ onStart }) {
+  const { theme } = useTheme();
   return (
-    <View style={styles.container}>
+    <View style={[styles.container, { backgroundColor: theme.background }]}>
       <StatusBar barStyle="dark-content" backgroundColor="#fff" />
       
       <View style={styles.logoContainer}>
         <Image source={driveLogo} style={styles.logo} resizeMode="contain" />
-        <Text style={styles.title}>D.R.I.V.E</Text>
+        <Text style={[styles.title, {color: theme.primary }]}>D.R.I.V.E</Text>
       </View>
 
-      <TouchableOpacity style={styles.button} onPress={onStart}>
+      <TouchableOpacity
+        style={[styles.button, { backgroundColor: theme.primary }]}
+        onPress={onStart}
+      >
         <Text style={styles.buttonText}>Get Started</Text>
       </TouchableOpacity>
+
     </View>
   );
 }

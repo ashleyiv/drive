@@ -19,7 +19,7 @@ import { decode } from 'base64-arraybuffer';
 import { supabase } from '../lib/supabase';
 import { formatPHPretty } from '../lib/phonePH';
 import { clearAvatarCache, getUserAvatarUrl, resolveAvatarUrl } from '../lib/avatar';
-
+import useTheme from '../theme/useTheme';
 
 export default function AccountSettings({
   onBack,
@@ -53,6 +53,8 @@ export default function AccountSettings({
   // Preview modal
   const [previewVisible, setPreviewVisible] = useState(false);
   const [pendingUri, setPendingUri] = useState(null);
+
+  const { theme, isDark, toggleTheme } = useTheme();
 
   // ---------- helpers ----------
   const IMAGE_MEDIA_TYPES =
@@ -344,8 +346,8 @@ const handleSave = async () => {
 
   // ---------- UI ----------
   return (
-    <View style={styles.container}>
-      <View style={styles.header}>
+    <View style={[styles.container, { backgroundColor: theme.background }]}>
+      <View style={[styles.header, { backgroundColor: theme.primary }]}>
         <TouchableOpacity onPress={onBack} style={{ marginBottom: 16 }}>
           <Ionicons name="chevron-back" size={28} color="white" />
         </TouchableOpacity>
@@ -358,7 +360,7 @@ const handleSave = async () => {
             activeOpacity={0.8}
             onPress={openPicker}
             disabled={avatarUploading}
-            style={styles.avatar}
+            style={[styles.avatar, { backgroundColor: theme.primary }]}
           >
             {avatarDisplayUri ? (
               <Image source={{ uri: avatarDisplayUri }} style={{ width: '100%', height: '100%' }} />
@@ -374,7 +376,7 @@ const handleSave = async () => {
           </TouchableOpacity>
 
           <TouchableOpacity onPress={openPicker} disabled={avatarUploading}>
-            <Text style={styles.changePhotoText}>
+            <Text style={[styles.changePhotoText, { color: theme.primary }]}>
               {avatarUploading ? 'Uploading…' : 'Upload Photo'}
             </Text>
           </TouchableOpacity>
@@ -425,41 +427,75 @@ const handleSave = async () => {
 
         {/* rest of your UI unchanged */}
         <View style={styles.section}>
-          <Text style={styles.sectionTitle}>Profile Information</Text>
+          <Text style={[styles.sectionTitle, { color: theme.textPrimary }]}>Profile Information</Text>
 
-          <Text style={styles.label}>Email</Text>
-          <TextInput style={[styles.input, styles.disabledInput]} value={email} editable={false} />
-
-          <Text style={styles.label}>First Name</Text>
+          <Text style={[styles.label, { color: theme.textSecondary }]}>Email</Text>
           <TextInput
-            style={[styles.input, !editing && styles.disabledInput]}
+  style={[
+    styles.input,
+    { backgroundColor: theme.disabledInputBackground, color: theme.inputText },
+  ]}
+  value={email}
+  editable={false}
+/>
+          <Text style={[styles.label, { color: theme.textSecondary }]}>First Name</Text>
+          <TextInput
+            style={[
+              styles.input,
+              {
+                backgroundColor: editing
+                  ? theme.inputBackground
+                  : theme.disabledInputBackground, 
+                color: theme.inputText,
+              },
+            ]}
             value={firstName}
             editable={editing && !saving}
             onChangeText={setFirstName}
           />
 
-          <Text style={styles.label}>Last Name</Text>
+          <Text style={[styles.label, { color: theme.textSecondary }]}>Last Name</Text>
+          
           <TextInput
-            style={[styles.input, !editing && styles.disabledInput]}
+            style={[
+              styles.input,
+              {
+                backgroundColor: editing
+                  ? theme.inputBackground
+                  : theme.disabledInputBackground, 
+                color: theme.inputText,
+              },
+            ]}
             value={lastName}
             editable={editing && !saving}
             onChangeText={setLastName}
           />
 
-          <Text style={styles.label}>Phone Number</Text>
-          <TextInput style={[styles.input, styles.disabledInput]} value={phone} editable={false} />
+          <Text style={[styles.label, { color: theme.textSecondary }]}>Phone Number</Text>
+          <TextInput
+            style={[
+              styles.input,
+              { backgroundColor: theme.disabledInputBackground, color: theme.inputText },
+            ]}
+            value={phone}
+            editable={false}
+          />
           <Text style={styles.note}>Phone number cannot be changed</Text>
 
           {!editing ? (
-            <TouchableOpacity style={styles.primaryButton} onPress={() => setEditing(true)}>
+            <TouchableOpacity style={[styles.primaryButton, { backgroundColor: theme.primary }]}
+            onPress={() => setEditing(true)}>
               <Text style={styles.buttonText}>Edit Profile</Text>
             </TouchableOpacity>
           ) : (
             <View style={{ flexDirection: 'row', gap: 12 }}>
               <TouchableOpacity style={styles.outlineButton} onPress={() => setEditing(false)} disabled={saving}>
-                <Text style={styles.outlineButtonText}>Cancel</Text>
+                <Text style={[styles.outlineButtonText, { color: theme.idleText }]}>Cancel</Text>
               </TouchableOpacity>
-              <TouchableOpacity style={styles.primaryButton} onPress={handleSave} disabled={saving}>
+              <TouchableOpacity style={[styles.primaryButton, { backgroundColor: theme.primary }]}
+              onPress={handleSave}
+              disabled={saving}
+            >
                 <Text style={styles.buttonText}>{saving ? 'Saving…' : 'Save'}</Text>
               </TouchableOpacity>
             </View>
@@ -471,13 +507,13 @@ const handleSave = async () => {
 
           {!changingPassword ? (
             <TouchableOpacity style={styles.outlineButton} onPress={() => setChangingPassword(true)}>
-              <Text style={[styles.outlineButtonText, { color: '#1E40AF' }]}>Change Password</Text>
+              <Text style={[styles.outlineButtonText, { color: theme.primary }]}>Change Password</Text>
             </TouchableOpacity>
           ) : (
             <>
-              <Text style={styles.label}>Current Password</Text>
+              <Text style={[styles.label, { color: theme.textSecondary }]}>Current Password</Text>
               <TextInput
-                style={styles.input}
+                style={[ styles.input, { backgroundColor: theme.inputBackground, color: theme.inputText }, ]}
                 secureTextEntry
                 placeholder="Enter current password"
                 value={currentPassword}
@@ -485,21 +521,35 @@ const handleSave = async () => {
                 editable={!busyPassword}
               />
 
-              <Text style={styles.label}>New Password</Text>
+              <Text style={[styles.label, { color: theme.textSecondary }]}>New Password</Text>
               <TextInput
-                style={styles.input}
+                style={[
+                  styles.input,
+                  { 
+                    backgroundColor: theme.inputBackground, 
+                    color: theme.inputText
+                  }
+                ]}
                 secureTextEntry
                 placeholder="Enter new password"
+                placeholderTextColor={theme.placeholderText}
                 value={newPassword}
                 onChangeText={setNewPassword}
                 editable={!busyPassword}
               />
 
-              <Text style={styles.label}>Confirm New Password</Text>
+              <Text style={[styles.label, { color: theme.textSecondary }]}>Confirm New Password</Text>
               <TextInput
-                style={styles.input}
+                style={[
+                  styles.input,
+                  { 
+                    backgroundColor: theme.inputBackground,
+                    color: theme.inputText
+                  },
+                ]}
                 secureTextEntry
                 placeholder="Confirm new password"
+                placeholderTextColor={theme.placeholderText}
                 value={confirmPassword}
                 onChangeText={setConfirmPassword}
                 editable={!busyPassword}
@@ -516,7 +566,7 @@ const handleSave = async () => {
                   }}
                   disabled={busyPassword}
                 >
-                  <Text style={styles.outlineButtonText}>Cancel</Text>
+                  <Text style={[styles.outlineButtonText, { color: theme.idleText }]}>Cancel</Text>
                 </TouchableOpacity>
                 <TouchableOpacity style={styles.primaryButton} onPress={handleChangePassword} disabled={busyPassword}>
                   <Text style={styles.buttonText}>{busyPassword ? 'Updating…' : 'Update Password'}</Text>

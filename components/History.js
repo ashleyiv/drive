@@ -515,13 +515,13 @@ setDailyRows(data || []);
   return (
     <View style={[styles.container, { backgroundColor: theme.background }]}>
       {/* Header */}
-      <View style={styles.header}>
+      <View style={[styles.header, { backgroundColor: theme.primary }]}>
         <Text style={styles.headerTitle}>History</Text>
         <Text style={styles.headerSub}>See your latest activities</Text>
 
         <View style={styles.tabsWrap}>
           <TouchableOpacity
-            style={[styles.tabBtn, activeTab === 'warnings' && styles.tabBtnActive]}
+            style={[styles.tabBtn, activeTab === 'warnings' && { backgroundColor: theme.tabBg }]}
             onPress={() => setActiveTab('warnings')}
           >
             <Text style={[styles.tabText, activeTab === 'warnings' && styles.tabTextActive]}>
@@ -530,7 +530,7 @@ setDailyRows(data || []);
           </TouchableOpacity>
 
           <TouchableOpacity
-            style={[styles.tabBtn, activeTab === 'monitoring' && styles.tabBtnActive]}
+            style={[styles.tabBtn, activeTab === 'monitoring' && { backgroundColor: theme.tabBg }]}
             onPress={() => setActiveTab('monitoring')}
           >
             <Text style={[styles.tabText, activeTab === 'monitoring' && styles.tabTextActive]}>
@@ -798,7 +798,7 @@ setDailyRows(data || []);
          ========================= */}
       <Modal visible={reportsOpen} animationType="slide" onRequestClose={() => setReportsOpen(false)}>
         <View style={{ flex: 1, backgroundColor: theme.background }}>
-          <View style={styles.modalHeader}>
+          <View style={[styles.modalHeader, { backgroundColor: theme.primary }]}>
             <TouchableOpacity onPress={() => setReportsOpen(false)} style={styles.backBtn}>
               <Feather name="chevron-left" size={22} color="#fff" />
             </TouchableOpacity>
@@ -837,8 +837,9 @@ setDailyRows(data || []);
 
 /* ---------- Tiles (Monitoring Activity) ---------- */
 function Tile({ title, sub, icon, onPress }) {
+  const { theme } = useTheme();
   return (
-    <TouchableOpacity style={styles.tile} onPress={onPress} activeOpacity={0.9}>
+    <TouchableOpacity style={[styles.tile, { backgroundColor: theme.tabBg }]} onPress={onPress} activeOpacity={0.9}>
       <View style={{ alignItems: 'center' }}>
         <View style={styles.tileIconWrap}>{icon}</View>
         <Text style={styles.tileTitle}>{title}</Text>
@@ -1090,8 +1091,6 @@ const styles = StyleSheet.create({
     paddingTop: 46,
     paddingHorizontal: 16,
     paddingBottom: 14,
-    borderBottomLeftRadius: 16,
-    borderBottomRightRadius: 16,
   },
   headerTitle: { color: '#fff', fontSize: 22, fontWeight: '800' },
   headerSub: { color: 'rgba(255,255,255,0.85)', marginTop: 2, fontSize: 12 },
@@ -1172,9 +1171,9 @@ const styles = StyleSheet.create({
 
   modalHeader: {
     backgroundColor: '#1F7CC0',
-    paddingTop: 46,
+    paddingTop: 26,
     paddingHorizontal: 12,
-    paddingBottom: 14,
+    paddingBottom: 18,
     flexDirection: 'row',
     alignItems: 'center',
   },
