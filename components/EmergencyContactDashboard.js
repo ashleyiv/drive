@@ -1652,7 +1652,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     gap: 10,
   },
-  headerTitle: { fontSize: 24, fontWeight: 'bold', color: '#FFFFFF' },
+  headerTitle: { fontSize: 24, color: '#FFFFFF' },
   headerSubtitle: { fontSize: 14, color: '#BFDBFE', marginTop: 4 },
 
   driverList: { paddingHorizontal: 16, paddingVertical: 12 },

@@ -4,9 +4,11 @@ export const LightTheme = {
     background: '#FFFFFF',
     cardBackground: '#1E40AF',
     surface: '#F9FAFB',
+    primary: '#1E3A8A',
+    secondary: '#DBEAFE',
   
     textPrimary: '#111827',
-    textSecondary: '#bcbcbc',
+    textSecondary: '#a3a3a3',
   
     iconPrimary: '#2563EB',
     border: '#E5E7EB',
@@ -15,7 +17,9 @@ export const LightTheme = {
     navActiveBackground: '#2563EB',
     navActiveText: '#FFFFFF',
     navInactiveText: '#3B82F6',
+    navInactive: '#9CA3AF',
   
+    danger: '#DC2626',
     modalBackground: '#FFFFFF',
   };
   
@@ -38,5 +42,9 @@ export const LightTheme = {
     navInactiveText: '#94A3B8',
   
     modalBackground: '#020617',
+    primary: '#3B82F6',
+    secondary: '#e3e6f0ff',
+    danger: '#F87171',
+    navInactive: '#D1D5DB',
   };
   

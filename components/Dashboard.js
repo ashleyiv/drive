@@ -786,33 +786,33 @@ useEffect(() => {
  if (showNotifications) {
   return (
     <View style={{ flex: 1, backgroundColor: theme.background }}>
-      <View style={{ paddingHorizontal: 18, paddingBottom: 10, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
-        <Text style={{ fontSize: 18, fontWeight: '900', color: '#111827' }}>Notifications</Text>
+      <View style={{ paddingHorizontal: 18, paddingBottom: 10, paddingTop: 40, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
+        <Text style={{ fontSize: 18, fontWeight: '900', color: theme.textPrimary }}>Notifications</Text>
         <TouchableOpacity onPress={() => setShowNotifications(false)}>
           <Text style={{ color: '#1E88E5', fontWeight: '800' }}>Back</Text>
         </TouchableOpacity>
       </View>
 
       <ScrollView contentContainerStyle={{ paddingHorizontal: 18, paddingBottom: 18,  }}>
-        <View style={{ padding: 14, borderRadius: 14, backgroundColor: '#F3F4F6', marginBottom: 12 }}>
-          <Text style={{ fontWeight: '900', color: '#111827' }}>Pending requests</Text>
-          <Text style={{ marginTop: 4, color: '#6B7280', fontWeight: '700' }}>
+        <View style={{ padding: 14, borderRadius: 14, backgroundColor: theme.background, marginBottom: 12 }}>
+          <Text style={{ fontWeight: '900', color: theme.textPrimary }}>Pending requests</Text>
+          <Text style={{ marginTop: 4, color: theme.textSecondary, fontWeight: '700' }}>
             You have {pendingInviteCount} pending emergency contact request{pendingInviteCount === 1 ? '' : 's'}.
           </Text>
         </View>
 
-        <Text style={{ fontSize: 14, fontWeight: '900', color: '#111827', marginBottom: 10 }}>
+        <Text style={{ fontSize: 14, fontWeight: '900', color: theme.textPrimary, marginBottom: 10 }}>
           Accepted requests
         </Text>
 
         {loadingAcceptedReqs ? (
           <View style={{ paddingVertical: 20, alignItems: 'center' }}>
             <ActivityIndicator />
-            <Text style={{ marginTop: 8, color: '#6B7280', fontWeight: '700' }}>Fetching…</Text>
+            <Text style={{ marginTop: 8, color: theme.textSecondary, fontWeight: '700' }}>Fetching…</Text>
           </View>
         ) : acceptedReqs.length === 0 ? (
           <View style={{ paddingVertical: 20 }}>
-            <Text style={{ color: '#6B7280', fontWeight: '700' }}>
+            <Text style={{ color: theme.textSecondary, fontWeight: '700' }}>
               No accepted requests yet.
             </Text>
           </View>
@@ -1409,7 +1409,7 @@ const s = {
   },
 
   header: {
-    height: 90,
+    height: 120,
     backgroundColor: '#1E88E5',
     paddingTop: 34,
     paddingHorizontal: 16,
