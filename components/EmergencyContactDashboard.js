@@ -1645,8 +1645,8 @@ const styles = StyleSheet.create({
   },
 
   header: {
-    backgroundColor: '#1E40AF',
-    paddingVertical: 20,
+    backgroundColor: '#1E3A8A',
+    paddingVertical: 24,
     paddingHorizontal: 16,
     flexDirection: 'row',
     alignItems: 'center',

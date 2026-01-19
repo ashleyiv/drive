@@ -30,6 +30,10 @@ import EmergencyContactNotifications from './components/EmergencyContactNotifica
 import EmergencyContactSettings from './components/EmergencyContactSettings.js';
 import DriverDetailView from './components/DriverDetailView';
 import ModeSwitchLoadingScreen from './components/ModeSwitchLoadingScreen';
+import About from './components/About';
+import PrivacyPolicy from './components/PrivacyPolicy';
+import TermsOfService from './components/TermsOfService';
+
 
 /* THEME */
 import { ThemeProvider } from './theme/ThemeContext';
@@ -47,6 +51,7 @@ function AppContent() {
   const { theme } = useTheme();
   const [currentScreen, setCurrentScreen] = useState('splash');
   const [navParams, setNavParams] = useState(null);
+  const [screenStack, setScreenStack] = useState([]);
   const otpInFlightRef = useRef(false);
   // ✅ Mode switch loading screen (prevents UI changing immediately)
   const [modeSwitchConfig, setModeSwitchConfig] = useState(null);
@@ -360,8 +365,19 @@ const handleNewPasswordSubmit = async (newPassword) => {
   };
 
  const handleNavigate = (screen, params = null) => {
+  setScreenStack(prev => [...prev, currentScreen]);
   setNavParams(params);
   setCurrentScreen(screen);
+};
+
+const handleGoBack = () => {
+  setScreenStack(prev => {
+    if (prev.length === 0) return prev; // nothing to go back to
+    const newStack = [...prev];
+    const previous = newStack.pop();
+    setCurrentScreen(previous);
+    return newStack;
+  });
 };
 
   // ✅ Show white loading screen BEFORE switching modes/screens
@@ -565,6 +581,20 @@ const handleNewPasswordSubmit = async (newPassword) => {
       {currentScreen === 'connected-accounts' && (
         <ConnectedAccountsScreen onNavigate={handleNavigate} isDarkMode={false} />
       )}
+
+      {/* ABOUT / POLICY / TERMS */}
+      {currentScreen === 'about' && (
+        <About onNavigate={handleNavigate} onBack={handleGoBack} />
+      )}
+
+      {currentScreen === 'privacy-policy' && (
+        <PrivacyPolicy onNavigate={handleNavigate} onBack={handleGoBack} />
+      )}
+
+      {currentScreen === 'terms-of-service' && (
+        <TermsOfService onNavigate={handleNavigate} onBack={handleGoBack} />
+      )}
+
     </View>
   );
 }

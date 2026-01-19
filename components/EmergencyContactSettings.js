@@ -15,6 +15,9 @@ import { formatPHPretty } from '../lib/phonePH';
 import { clearAvatarCache, getUserAvatarUrl, resolveAvatarUrl } from '../lib/avatar'; // ✅ added
 import BottomNav from './BottomNav';
 import { usePendingInviteCount } from '../lib/usePendingInviteCount';
+import About from './About';
+import PrivacyPolicy from './PrivacyPolicy';
+import TermsOfService from './TermsOfService';
 import useTheme from '../theme/useTheme';
 const ENABLE_MODE_SWITCH = false; // ✅ Disable switching UI without deleting logic
 
@@ -56,6 +59,9 @@ export default function EmergencyContactSettings({ onNavigate, onSwitchToDriver 
   const [showLogoutConfirm, setShowLogoutConfirm] = useState(false);
   const [showDisconnectModal, setShowDisconnectModal] = useState(false);
   const [selectedAccount, setSelectedAccount] = useState(null);
+  const [showAbout, setShowAbout] = useState(false);
+  const [showPrivacyPolicy, setShowPrivacyPolicy] = useState(false);
+  const [showTerms, setShowTerms] = useState(false);
 
   // Profile state
   const [profileLoading, setProfileLoading] = useState(true);
@@ -285,6 +291,46 @@ const { count: pendingInviteCount } = usePendingInviteCount();
                   <View style={[styles.toggleKnob, isDarkMode && styles.toggleKnobOn]} />
                 </Pressable>
               </View>
+              <View style={[styles.divider, { backgroundColor: theme.divider }]} />
+              <Pressable
+                style={styles.listItem}
+                onPress={() => onNavigate('privacy-policy')}
+              >
+                <View style={styles.row}>
+                  <Ionicons name="shield" size={20} color={theme.subText} />
+                  <Text style={[styles.itemTitle, { color: theme.text }]}>
+                    Privacy Policy
+                  </Text>
+                </View>
+                <Feather name="chevron-right" size={20} color={theme.navInactive} />
+              </Pressable>
+              <View style={[styles.divider, { backgroundColor: theme.divider }]} />
+              <Pressable
+                style={styles.listItem}
+                onPress={() => onNavigate('terms-of-service')}
+              >
+                <View style={styles.row}>
+                  <Feather name="file-text" size={20} color={theme.subText} />
+                  <Text style={[styles.itemTitle, { color: theme.text }]}>
+                    Terms of Service
+                  </Text>
+                </View>
+                <Feather name="chevron-right" size={20} color={theme.navInactive} />
+              </Pressable>
+              <View style={[styles.divider, { backgroundColor: theme.divider }]} />
+              <Pressable
+                style={styles.listItem}
+                onPress={() => onNavigate('about')}
+              >
+                <View style={styles.row}>
+                  <Feather name="info" size={20} color={theme.subText} />
+                  <Text style={[styles.itemTitle, { color: theme.text }]}>
+                    About
+                  </Text>
+                </View>
+                <Feather name="chevron-right" size={20} color={theme.navInactive} />
+              </Pressable>
+
             </View>
 
             {/* Logout */}
