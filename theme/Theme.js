@@ -5,7 +5,7 @@ export const LightTheme = {
     cardBackground: '#1E40AF',
     surface: '#F9FAFB',
     primary: '#1E3A8A',
-    secondary: '#DBEAFE',
+    secondary: '#c7defc',
   
     textPrimary: '#111827',
     textSecondary: '#a3a3a3',
@@ -19,7 +19,17 @@ export const LightTheme = {
     navInactiveText: '#3B82F6',
     navInactive: '#9CA3AF',
   
-    danger: '#DC2626',
+      // Status
+  success: '#16A34A',
+  warning: '#F59E0B',
+  danger: '#DC2626',
+
+  // Badges
+  drivingBg: '#DBEAFE',
+  drivingText: '#1E40AF',
+  idleBg: '#E5E7EB',
+  idleText: '#374151',
+
     modalBackground: '#FFFFFF',
   };
   
@@ -28,7 +38,7 @@ export const LightTheme = {
   
     background: '#0F172A',
     cardBackground: '#1E293B',
-    surface: '#020617',
+    surface: '#fff',
   
     textPrimary: '#F9FAFB',
     textSecondary: '#CBD5F5',
@@ -43,8 +53,18 @@ export const LightTheme = {
   
     modalBackground: '#020617',
     primary: '#3B82F6',
-    secondary: '#e3e6f0ff',
-    danger: '#F87171',
+    secondary: 'rgb(172, 174, 181)',
     navInactive: '#D1D5DB',
+
+      // Status
+  success: '#22C55E',
+  warning: '#FACC15',
+  danger: '#F87171',
+
+  // Badges
+  drivingBg: '#1E3A8A',
+  drivingText: '#BFDBFE',
+  idleBg: '#1E293B',
+  idleText: '#CBD5F5',
   };
   

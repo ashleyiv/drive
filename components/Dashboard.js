@@ -1111,7 +1111,7 @@ async function stopLocationStreaming(subscription) {
             <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
               <Text style={{ fontSize: 16, fontWeight: '700', color: theme.textPrimary }}>Bluetooth Devices</Text>
               <Pressable onPress={closeDeviceModal}>
-                <Ionicons name="close" size={22} color="#111827" />
+                <Ionicons name="close" size={22} color={theme.textPrimary} />
               </Pressable>
             </View>
 

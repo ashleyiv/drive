@@ -26,6 +26,7 @@ import BottomNav from './BottomNav';
 import { usePendingInviteCount } from '../lib/usePendingInviteCount';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Dimensions } from 'react-native';
+import useTheme from '../theme/useTheme';
 
 const BT_COACHMARK_SEEN_KEY = 'bt_coachmark_seen_this_login';
 
@@ -319,6 +320,7 @@ function BluetoothCoachmark({ visible, targetLayout, onDismiss }) {
 
 
 export default function EmergencyContactDashboard({ onNavigate, onViewDriver, onSwitchToDriver }) {
+  const { theme } = useTheme();
   const { count: pendingInviteCount } = usePendingInviteCount();
   const [drivers, setDrivers] = useState(mockDrivers);
   const bluetoothBtnRef = useRef(null);
@@ -933,7 +935,7 @@ useEffect(() => {
   sub();
 
   return () => {
-    if (channel) supabase.removeChannel(channel);
+    if (channel) supabase.removeChannel(channel); 
   };
   // eslint-disable-next-line react-hooks/exhaustive-deps
 }, []);
@@ -986,7 +988,7 @@ useEffect(() => {
     '—';
 
   return (
-    <View style={styles.container}>
+    <View style={[styles.container, { backgroundColor: theme.background }]}>
       <ModeSwitchOverlay
         visible={modeOverlayVisible}
         title="EMERGENCY CONTACT MODE"
@@ -1036,12 +1038,12 @@ useEffect(() => {
         {loadingDrivers ? (
           <View style={{ paddingVertical: 40, alignItems: 'center' }}>
             <ActivityIndicator />
-            <Text style={{ marginTop: 10, color: '#6B7280' }}>Loading drivers…</Text>
+            <Text style={{ marginTop: 10, color: theme.textSecondary }}>Loading drivers…</Text>
           </View>
         ) : drivers.length === 0 ? (
           <View style={{ paddingVertical: 40, alignItems: 'center' }}>
             <FontAwesome5 name="users" size={42} color="#D1D5DB" />
-            <Text style={{ marginTop: 10, color: '#6B7280' }}>No connected drivers yet</Text>
+            <Text style={{ marginTop: 10, color: theme.textSecondary }}>No connected drivers yet</Text>
           </View>
      ) : (
   drivers.map((driver) => {
@@ -1057,7 +1059,7 @@ useEffect(() => {
     return (
       <TouchableOpacity
           key={driver.id}
-  style={styles.driverCard}
+  style={[styles.driverCard, { backgroundColor: theme.surface }]}
   onPress={() => openBigMapForDriver(driver.id)}   // ✅ whole card opens Big Map
   onLongPress={() => handleDriverPress(driver)}     // ✅ optional: keep old behavior (danger modal / view driver)
   delayLongPress={350}
@@ -1517,8 +1519,8 @@ useEffect(() => {
       {/* Bluetooth Modal (KEEP) */}
       <Modal visible={deviceModalVisible} transparent animationType="fade">
         <View style={styles.btOverlay}>
-          <View style={styles.btBox}>
-            <Text style={styles.btTitle}>Bluetooth Devices</Text>
+          <View style={[styles.btBox, { backgroundColor: theme.background }]}>
+            <Text style={[styles.btTitle, { color: theme.textPrimary }]}>Bluetooth Devices</Text>
             <Text style={styles.btSubtitle}>
               {connectedDevice ? `Connected to ${connectedDevice.name}` : 'No device connected'}
             </Text>
@@ -1577,7 +1579,7 @@ useEffect(() => {
                 {
                   backgroundColor:
                     !selectedDevice || scanState === 'scanning' || scanState === 'pairing'
-                      ? '#D1D5DB'
+                      ? theme.secondary
                       : '#1E3A8A',
                 },
               ]}
