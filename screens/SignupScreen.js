@@ -15,6 +15,7 @@ import {
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { normalizePHToDigits10, normalizePHToE164 } from '../lib/phonePH';
+import { checkPasswordBlacklist } from '../lib/passwordBlacklist';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import useTheme from '../theme/useTheme';
 
@@ -224,11 +225,28 @@ useEffect(() => {
 
     const hasMinLen = p.length >= 8;
     const hasUpper = /[A-Z]/.test(p);
-    const hasNumOrSymbol = /[\d\W]/.test(p); // number OR symbol
+    const hasNumber = /\d/.test(p); // at least one digit
+    const hasSymbol = /\W/.test(p); // at least one symbol
     const hasLower = /[a-z]/.test(p);
 
-    return { hasMinLen, hasUpper, hasNumOrSymbol, hasLower };
+    return { hasMinLen, hasUpper, hasNumber, hasSymbol, hasLower };
   }, [password]);
+
+  // ✅ NEW: Check password against blacklist
+  const blacklistError = useMemo(() => {
+    const p = String(password || '');
+    if (!p) return '';
+    
+    // Check against blacklist with user context for personalization
+    const error = checkPasswordBlacklist(p, {
+      email,
+      firstName,
+      lastName,
+      phone: phoneDigits,
+    });
+    
+    return error;
+  }, [password, email, firstName, lastName, phoneDigits]);
 
   const passwordError = useMemo(() => {
   // ✅ OTP signup: password is OPTIONAL
@@ -236,9 +254,12 @@ useEffect(() => {
   if (!p) return '';
   if (!passwordRules.hasMinLen) return 'Password must be at least 8 characters.';
   if (!passwordRules.hasUpper) return 'Password must contain at least 1 uppercase letter.';
-  if (!passwordRules.hasNumOrSymbol) return 'Password must contain at least 1 number or symbol.';
+  if (!passwordRules.hasNumber) return 'Password must contain at least 1 number.';
+  if (!passwordRules.hasSymbol) return 'Password must contain at least 1 symbol.';
+  // ✅ NEW: Check blacklist AFTER basic rules pass
+  if (blacklistError) return blacklistError;
   return '';
-}, [password, passwordRules]);
+}, [password, passwordRules, blacklistError]);
 
   const confirmError = useMemo(() => {
   // ✅ OTP signup: confirm is only required IF password is typed
@@ -265,12 +286,13 @@ useEffect(() => {
     let score = 0;
     if (passwordRules.hasMinLen) score += 1;
     if (passwordRules.hasUpper) score += 1;
-    if (passwordRules.hasNumOrSymbol) score += 1;
+    if (passwordRules.hasNumber) score += 1;
+    if (passwordRules.hasSymbol) score += 1;
     if (passwordRules.hasLower) score += 1;
     if (p.length >= 12) score += 1;
 
-    // 0-2 weak, 3-4 medium, 5 strong
-    const label = score <= 2 ? 'Weak' : score <= 4 ? 'Medium' : 'Strong';
+    // 0-2 weak, 3-5 medium, 6 strong
+    const label = score <= 2 ? 'Weak' : score <= 5 ? 'Medium' : 'Strong';
     return { label, score };
   }, [password, passwordRules]);
 
