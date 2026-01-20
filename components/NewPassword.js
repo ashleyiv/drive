@@ -18,15 +18,41 @@ export default function NewPassword({ onSubmit, onBack }) {
   const [show, setShow] = useState(false);
   const [loading, setLoading] = useState(false);
 
+  const MAX_PW = 30;
+  const hasUpper = (s) => /[A-Z]/.test(s);
+  const hasNumber = (s) => /\d/.test(s);
+  const hasSpecial = (s) => /[^A-Za-z0-9]/.test(s);
+
+  const strength = useMemo(() => {
+    const p = String(password || '');
+
+    if (!p) return { label: null, level: 0 };
+
+    // level: 1..3
+    let points = 0;
+    if (p.length >= 8) points++;
+    if (p.length >= 12) points++;
+    if (hasUpper(p) && hasNumber(p) && hasSpecial(p)) points++;
+
+    if (points <= 1) return { label: 'Weak', level: 1 };
+    if (points === 2) return { label: 'Medium', level: 2 };
+    return { label: 'Strong', level: 3 };
+  }, [password]);
+
   const errors = useMemo(() => {
     const e = {};
     const p = String(password || '');
     const c = String(confirm || '');
 
     if (!p) e.password = 'Password is required';
-    else if (p.trim().length < 6) e.password = 'Password must be at least 6 characters';
+    else if (p.length < 8) e.password = 'Password must be at least 8 characters';
+    else if (p.length > MAX_PW) e.password = 'Password must not exceed 30 characters';
+    else if (!hasUpper(p)) e.password = 'Password must contain at least 1 uppercase letter';
+    else if (!hasNumber(p)) e.password = 'Password must contain at least 1 number';
+    else if (!hasSpecial(p)) e.password = 'Password must contain at least 1 special character';
 
     if (!c) e.confirm = 'Confirm your password';
+    else if (c.length > MAX_PW) e.confirm = 'Password must not exceed 30 characters';
     else if (p !== c) e.confirm = 'Passwords do not match';
 
     return e;
@@ -62,9 +88,11 @@ export default function NewPassword({ onSubmit, onBack }) {
       <Text style={styles.label}>New Password</Text>
       <View style={styles.inputWrap}>
         <Feather name="lock" size={18} color="#6B7280" style={{ marginRight: 8 }} />
-        <TextInput
-          value={password}
-          onChangeText={setPassword}
+       <TextInput
+  value={password}
+  onChangeText={(t) => setPassword(String(t ?? '').slice(0, 30))}
+  maxLength={30}
+
           placeholder="New password"
           secureTextEntry={!show}
           style={styles.input}
@@ -75,6 +103,26 @@ export default function NewPassword({ onSubmit, onBack }) {
         </Pressable>
       </View>
       {!!errors.password && <Text style={styles.error}>{errors.password}</Text>}
+      {!!password && (
+        <View style={{ marginTop: 10 }}>
+          <Text style={styles.meterText}>
+            Strength: {strength.label}
+          </Text>
+
+          <View style={styles.meterTrack}>
+            <View
+              style={[
+                styles.meterFill,
+                {
+                  width: strength.level === 1 ? '33%' : strength.level === 2 ? '66%' : '100%',
+                  backgroundColor:
+                    strength.level === 1 ? '#DC2626' : strength.level === 2 ? '#F59E0B' : '#10B981',
+                },
+              ]}
+            />
+          </View>
+        </View>
+      )}
 
       <Text style={[styles.label, { marginTop: 14 }]}>Confirm Password</Text>
       <View style={styles.inputWrap}>
@@ -150,4 +198,17 @@ const styles = StyleSheet.create({
 
   backBtn: { marginTop: 14, alignItems: 'center', paddingVertical: 10 },
   backText: { color: '#2563EB', fontSize: 14, fontWeight: '800' },
+    meterText: { fontSize: 12, fontWeight: '800', color: '#374151' },
+  meterTrack: {
+    height: 8,
+    borderRadius: 8,
+    backgroundColor: '#E5E7EB',
+    marginTop: 6,
+    overflow: 'hidden',
+  },
+  meterFill: {
+    height: 8,
+    borderRadius: 8,
+  },
+
 });

@@ -12,6 +12,7 @@ import LoginScreen from './screens/LoginScreen';
 import SignupScreen from './screens/SignupScreen';
 import OTPConfirmation from './screens/OTPConfirmation';
 import ConnectedAccountsScreen from './screens/ConnectedAccountsScreen';
+import { onSignupSendOtp, onConfirmOtp, onResendOtp } from './lib/emailOtpSignup';
 
 /* AUTH */
 import ForgotPassword from './components/ForgotPassword';
@@ -33,8 +34,6 @@ import ModeSwitchLoadingScreen from './components/ModeSwitchLoadingScreen';
 import About from './components/About';
 import PrivacyPolicy from './components/PrivacyPolicy';
 import TermsOfService from './components/TermsOfService';
-
-
 /* THEME */
 import { ThemeProvider } from './theme/ThemeContext';
 import useTheme from './theme/useTheme';
@@ -58,6 +57,25 @@ function AppContent() {
   const [email, setEmail] = useState('');
   const [otpSentAt, setOtpSentAt] = useState(null);
 const [otpSending, setOtpSending] = useState(false);
+const checkEmailExists = async (email) => {
+  try {
+    const { data, error } = await supabase.rpc('email_exists', { p_email: String(email || '').trim().toLowerCase() });
+    if (error) return { ok: false, message: error.message };
+    return { ok: true, exists: !!data };
+  } catch (e) {
+    return { ok: false, message: e?.message || 'Failed to check email.' };
+  }
+};
+
+const checkPhoneExists = async (phoneE164) => {
+  try {
+    const { data, error } = await supabase.rpc('phone_exists', { p_phone: phoneE164 });
+    if (error) return { ok: false, message: error.message };
+    return { ok: true, exists: !!data };
+  } catch (e) {
+    return { ok: false, message: e?.message || 'Failed to check phone.' };
+  }
+};
 
   // store signup payload until OTP verifies
   const [signupData, setSignupData] = useState(null);
@@ -70,6 +88,70 @@ const [otpSending, setOtpSending] = useState(false);
 
   const [locationPermissionGranted, setLocationPermissionGranted] = useState(false);
   const [currentLocation, setCurrentLocation] = useState(null);
+  // ✅ PHONE OTP (new)
+  const [phoneOtpRequestId, setPhoneOtpRequestId] = useState(null);
+  const [phoneOtpSentAt, setPhoneOtpSentAt] = useState(null);
+  const [phoneVerifiedId, setPhoneVerifiedId] = useState(null); // verificationId
+  const [phoneForSignup, setPhoneForSignup] = useState(null);   // +63...
+
+
+    const sendPhoneOtp = async ({ phoneE164 }) => {
+    try {
+      const { data, error } = await supabase.functions.invoke('send_phone_otp', {
+        body: { phone: phoneE164 },
+      });
+
+      if (error) return { ok: false, message: error.message };
+      if (!data?.ok) return { ok: false, message: data?.message || 'Failed to send SMS' };
+
+      setPhoneOtpRequestId(data.requestId);
+      setPhoneForSignup(data.phone);
+      setPhoneOtpSentAt(Date.now());
+      return { ok: true };
+    } catch (e) {
+      return { ok: false, message: e?.message || 'Failed to send SMS' };
+    }
+  };
+
+  const verifyPhoneOtp = async ({ requestId, token }) => {
+    try {
+    const { data, error } = await supabase.functions.invoke('verify_phone_otp', {
+  body: { requestId, code: token }, // server now supports this
+});
+
+if (error) return { ok: false, message: error.message };
+if (!data?.ok) return { ok: false, message: data?.message || 'Invalid code' };
+
+// ✅ always set from returned verificationId
+setPhoneVerifiedId(data.verificationId);
+return { ok: true };
+
+    } catch (e) {
+      return { ok: false, message: e?.message || 'Invalid code' };
+    }
+  };
+  const handleVerifyPhoneStart = async (draft) => {
+    // store draft now (so we can continue after phone OTP)
+    setSignupData({
+      email: draft.email,
+      firstName: draft.firstName,
+      lastName: draft.lastName,
+      phone: draft.phone,
+      password: draft.password,
+    });
+
+    // clear any previous verification
+    setPhoneVerifiedId(null);
+
+    const res = await sendPhoneOtp({ phoneE164: draft.phone });
+    if (!res.ok) {
+      Alert.alert('Failed to send SMS', res.message);
+      return res;
+    }
+
+    setCurrentScreen('phone-otp');
+    return { ok: true };
+  };
 
   const normalizeEmail = (input) => String(input ?? '').trim().toLowerCase();
 
@@ -155,13 +237,22 @@ const [otpSending, setOtpSending] = useState(false);
     if (!formatted) return { ok: false, message: 'Please enter your email.' };
     if (!password) return { ok: false, message: 'Please enter your password.' };
 
-    const { data, error } = await supabase.rpc('check_email_password', {
-      p_email: formatted,
-      p_password: password,
+    // ✅ Validate credentials using Supabase Auth (source of truth)
+    const { data, error } = await supabase.auth.signInWithPassword({
+      email: formatted,
+      password,
     });
 
-    if (error) return { ok: false, message: error.message };
-    if (!data) return { ok: false, message: 'Email or password is incorrect.' };
+    if (error) {
+      // keep message user-friendly
+      return { ok: false, message: 'Incorrect password. Please try again.' };
+    }
+
+    // ✅ IMPORTANT: sign out immediately so access is gated by OTP
+    // (you still require email OTP next)
+    try {
+      await supabase.auth.signOut();
+    } catch {}
 
     return { ok: true, email: formatted };
   };
@@ -213,18 +304,33 @@ const [otpSending, setOtpSending] = useState(false);
     const userEmail = payload?.email;
     const password = payload?.password;
 
-    const creds = await checkEmailPassword({ email: userEmail, password });
+    // ✅ NEW: check email existence first (so we can show "Email not found")
+    const formattedEmail = normalizeEmail(userEmail);
+    const existsRes = await checkEmailExists(formattedEmail);
+    
+
+    if (!existsRes.ok) {
+      Alert.alert('Login failed', existsRes.message);
+      return { ok: false, message: existsRes.message };
+    }
+
+    if (!existsRes.exists) {
+      Alert.alert('Email not found', 'Email not found. Please try to sign up.');
+      return { ok: false, field: 'email', message: 'Email not found. Please try to sign up.' };
+    }
+
+    // ✅ Email exists -> now check password
+    const creds = await checkEmailPassword({ email: formattedEmail, password });
     if (!creds.ok) {
       Alert.alert('Login failed', creds.message);
       return creds;
     }
 
     const res = await sendEmailOtp({ email: creds.email, shouldCreateUser: false });
-   if (!res.ok) {
-  if (!res.silent) Alert.alert('Failed to send code', res.message);
-  return res;
-}
-
+    if (!res.ok) {
+      if (!res.silent) Alert.alert('Failed to send code', res.message);
+      return res;
+    }
 
     setOtpFlow('login');
     setEmail(res.email);
@@ -233,18 +339,34 @@ const [otpSending, setOtpSending] = useState(false);
     return { ok: true };
   };
 
+
   // SIGNUP: email+phone+password -> send email OTP -> OTP screen
-  const handleSignup = async (data) => {
+   // SIGNUP: one button flow
+// Sign Up -> check duplicates -> send PHONE OTP -> (after phone OTP success) send EMAIL OTP
+const handleSignup = async (data) => {
   if (data === 'google') {
     Alert.alert('Not implemented', 'Google sign-up is not wired up yet.');
     return { ok: false };
   }
 
   if (!data?.email || !data?.firstName || !data?.lastName || !data?.phone || !data?.password) {
-    Alert.alert('Missing info', 'Please fill in email, first name, last name, phone and password.');
-    return { ok: false };
+    return { ok: false, message: 'Please fill in all fields.' };
   }
 
+  // ✅ block duplicates BEFORE sending OTPs
+  const emailRes = await checkEmailExists(data.email);
+  if (!emailRes.ok) return { ok: false, message: emailRes.message };
+  if (emailRes.exists) {
+    return { ok: false, field: 'email', message: 'This email is already existing. please choose another one.' };
+  }
+
+  const phoneRes = await checkPhoneExists(data.phone);
+  if (!phoneRes.ok) return { ok: false, message: phoneRes.message };
+  if (phoneRes.exists) {
+    return { ok: false, field: 'phone', message: 'This phone number is already existing. please choose another one.' };
+  }
+
+  // ✅ store draft for OTP flow
   setSignupData({
     email: data.email,
     firstName: data.firstName,
@@ -253,60 +375,62 @@ const [otpSending, setOtpSending] = useState(false);
     password: data.password,
   });
 
-  const res = await sendEmailOtp({ email: data.email, shouldCreateUser: true });
-if (!res.ok) {
-  if (!res.silent) Alert.alert('Failed to send code', res.message);
-  return res;
-}
+  // ✅ clear old phone verification state
+  setPhoneVerifiedId(null);
+  setPhoneOtpRequestId(null);
+  setPhoneForSignup(null);
 
+  // ✅ send PHONE OTP now
+  const sms = await sendPhoneOtp({ phoneE164: data.phone });
+  if (!sms.ok) {
+    // if Edge Function returned field, forward it
+    return { ok: false, field: sms.field || 'phone', message: sms.message || 'Failed to send SMS.' };
+  }
 
-  setOtpFlow('signup');
-  setEmail(res.email);
-  setOtpSentAt(Date.now());
-  setCurrentScreen('signup-otp');
+  setCurrentScreen('phone-otp');
   return { ok: true };
 };
 
 
-  const handleOTPConfirm = async (token) => {
-    const res = await verifyEmailOtp({ email, token });
-    if (!res.ok) return res;
 
-    if (otpFlow === 'signup') {
-      // save password + phone into your profiles table (RPC)
-     const { error } = await supabase.rpc('upsert_profile_after_otp_email', {
-  p_first_name: signupData?.firstName ?? null,
-  p_last_name: signupData?.lastName ?? null,
-  p_phone: signupData?.phone ?? null,
-  p_password: signupData?.password ?? null,
-});
 
-      if (error) return { ok: false, message: error.message };
+const handleOTPConfirm = async (token) => {
+  // ✅ SIGNUP: use your lib helper (it verifies OTP + upserts profiles)
+  if (otpFlow === 'signup') {
+    const done = await onConfirmOtp({ email, token });
+    if (!done.ok) return done;
 
-      // IMPORTANT: go back to login (your requirement)
-      try {
-        await supabase.auth.signOut();
-      } catch {}
+    // requirement: go back to login after signup
+    try {
+      await supabase.auth.signOut();
+    } catch {}
 
-      setOtpFlow(null);
-      setSignupData(null);
-      setCurrentScreen('login');
-      return { ok: true };
-    }
-
-    if (otpFlow === 'login') {
-      setUserMode('emergency-contact');
-      setCurrentScreen('ec-dashboard');
-      return { ok: true };
-    }
-
-    if (otpFlow === 'forgot') {
-      setCurrentScreen('new-password');
-      return { ok: true };
-    }
-
+    setOtpFlow(null);
+    setSignupData(null);
+    setEmail('');
+    setOtpSentAt(null);
+    setCurrentScreen('login');
     return { ok: true };
-  };
+  }
+
+  // ✅ for login/forgot: keep your old verifyEmailOtp flow
+  const res = await verifyEmailOtp({ email, token });
+  if (!res.ok) return res;
+
+  if (otpFlow === 'login') {
+    setUserMode('emergency-contact');
+    setCurrentScreen('ec-dashboard');
+    return { ok: true };
+  }
+
+  if (otpFlow === 'forgot') {
+    setCurrentScreen('new-password');
+    return { ok: true };
+  }
+
+  return { ok: true };
+};
+
 
   const handleForgotPasswordSubmit = async (emailInput) => {
     const res = await sendEmailOtp({ email: emailInput, shouldCreateUser: false });
@@ -329,15 +453,15 @@ const handleNewPasswordSubmit = async (newPassword) => {
       return { ok: false };
     }
 
-    // user is signed-in already because they verified OTP
-    const { error } = await supabase.rpc('update_password_after_otp_email', {
-      p_password: newPassword,
-    });
+       // ✅ user is signed-in already because they verified OTP
+    // ✅ update password using Supabase Auth (no SQL hashing needed)
+    const { error } = await supabase.auth.updateUser({ password: newPassword });
 
     if (error) {
       Alert.alert('Failed to reset password', error.message);
       return { ok: false, message: error.message };
     }
+
 
     Alert.alert('Success', 'Your password has been updated. Please log in again.');
 
@@ -357,12 +481,20 @@ const handleNewPasswordSubmit = async (newPassword) => {
   }
 };
 
-  const handleResend = async () => {
-    const shouldCreateUser = otpFlow === 'signup';
-    const res = await sendEmailOtp({ email, shouldCreateUser });
+const handleResend = async () => {
+  if (otpFlow === 'signup') {
+    const res = await onResendOtp(email);
     if (res.ok) setOtpSentAt(Date.now());
     return res;
-  };
+  }
+
+  // keep existing behavior for login/forgot
+  const shouldCreateUser = false;
+  const res = await sendEmailOtp({ email, shouldCreateUser });
+  if (res.ok) setOtpSentAt(Date.now());
+  return res;
+};
+
 
  const handleNavigate = (screen, params = null) => {
   setScreenStack(prev => [...prev, currentScreen]);
@@ -489,10 +621,50 @@ const handleGoBack = () => {
           onBack={() => setCurrentScreen('login')}
         />
       )}
+      {currentScreen === 'phone-otp' && (
+  <OTPConfirmation
+    email={phoneForSignup || 'your phone'}
+    sentAt={phoneOtpSentAt}
+    expirySeconds={300}
+    resendCooldownSeconds={300}
+    maxAttempts={5}
+    onConfirm={async (token) => {
+      const res = await verifyPhoneOtp({ requestId: phoneOtpRequestId, token });
+      if (!res.ok) return res;
 
-      {currentScreen === 'signup' && (
-        <SignupScreen onSignup={handleSignup} onBackToLogin={() => setCurrentScreen('login')} />
-      )}
+      const emailRes = await onSignupSendOtp({
+        email: signupData?.email,
+        firstName: signupData?.firstName,
+        lastName: signupData?.lastName,
+        phone: signupData?.phone,
+      });
+
+      if (!emailRes.ok) return emailRes;
+
+      setOtpFlow('signup');
+      setEmail(String(signupData?.email || '').trim().toLowerCase());
+      setOtpSentAt(emailRes.sentAt || Date.now());
+      setCurrentScreen('signup-otp');
+      return { ok: true };
+    }}
+    onResend={async () => {
+      return await sendPhoneOtp({ phoneE164: signupData?.phone });
+    }}
+    onBack={() => setCurrentScreen('signup')}
+    onAttemptsExhausted={() => setCurrentScreen('login')}
+
+  />
+)}
+
+
+{currentScreen === 'signup' && (
+  <SignupScreen
+    onSignup={handleSignup}
+    onBackToLogin={() => setCurrentScreen('login')}
+    onCheckEmailExists={checkEmailExists}
+    onCheckPhoneExists={checkPhoneExists}
+  />
+)}
 
       {currentScreen === 'signup-otp' && (
         <OTPConfirmation
@@ -597,6 +769,7 @@ const handleGoBack = () => {
 
     </View>
   );
+
 }
 
 const styles = StyleSheet.create({

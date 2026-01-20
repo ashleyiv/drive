@@ -324,6 +324,7 @@ export default function EmergencyContactDashboard({ onNavigate, onViewDriver, on
   const { count: pendingInviteCount } = usePendingInviteCount();
   const [drivers, setDrivers] = useState(mockDrivers);
   const bluetoothBtnRef = useRef(null);
+const bigMapRef = useRef(null);
 
   const [showBtCoachmark, setShowBtCoachmark] = useState(false);
   const [btLayout, setBtLayout] = useState(null);
@@ -986,6 +987,33 @@ useEffect(() => {
     bigMapDriver?.warningLocationText ||
     bigMapDriver?.lastLocation ||
     '—';
+// ✅ Auto-follow pin ONLY while Big Map is open
+useEffect(() => {
+  if (!showBigMap) return;
+
+  const lat = bigMapDriver?.coordinates?.latitude;
+  const lng = bigMapDriver?.coordinates?.longitude;
+
+  if (typeof lat !== 'number' || typeof lng !== 'number') return;
+
+  // Keep deltas identical to your BIG map initialRegion so behavior feels the same
+  const region = {
+    latitude: lat,
+    longitude: lng,
+    latitudeDelta: 0.01,
+    longitudeDelta: 0.01,
+  };
+
+  // animateToRegion exists on react-native-maps MapView
+  // (no UI changes, just camera follow)
+  try {
+    bigMapRef.current?.animateToRegion?.(region, 700);
+  } catch {}
+}, [
+  showBigMap,
+  bigMapDriver?.coordinates?.latitude,
+  bigMapDriver?.coordinates?.longitude,
+]);
 
   return (
     <View style={[styles.container, { backgroundColor: theme.background }]}>
@@ -1348,16 +1376,18 @@ useEffect(() => {
 
               {/* Map */}
               {bigMapDriver ? (
-                <MapView
-                  style={{ height: 340, width: '100%', marginTop: 12 }}
-                  key={`BIG_${bigMapDriver.id}`}
-                  initialRegion={{
-                    latitude: bigMapDriver.coordinates.latitude,
-                    longitude: bigMapDriver.coordinates.longitude,
-                    latitudeDelta: 0.01,
-                    longitudeDelta: 0.01,
-                  }}
-                >
+               <MapView
+  ref={bigMapRef}
+  style={{ height: 340, width: '100%', marginTop: 12 }}
+  key={`BIG_${bigMapDriver.id}`}
+  initialRegion={{
+    latitude: bigMapDriver.coordinates.latitude,
+    longitude: bigMapDriver.coordinates.longitude,
+    latitudeDelta: 0.01,
+    longitudeDelta: 0.01,
+  }}
+>
+
                   <Marker coordinate={bigMapDriver.coordinates} />
                   {bigMapDriver.route?.length > 1 && (
                     <Polyline coordinates={bigMapDriver.route} strokeColor="#2563EB" strokeWidth={3} />

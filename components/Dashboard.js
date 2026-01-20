@@ -85,8 +85,7 @@ export default function Dashboard({ onNavigate, onSwitchToEmergencyContact }) {
   const { theme, isDark, toggleTheme } = useTheme();
   const [showWarningDetails, setShowWarningDetails] = useState(false);
     // ✅ Pending invites badge (for bell)
-  const { count: pendingInviteCount } = usePendingInviteCount({ enabled: true });
-
+  const { count: pendingInviteCount } = usePendingInviteCount({ enabled: true, direction: 'outgoing' });
   // ✅ Bell ringing animation (only when badge > 0)
   const bellAnim = useRef(new Animated.Value(0)).current;
 
@@ -117,8 +116,9 @@ export default function Dashboard({ onNavigate, onSwitchToEmergencyContact }) {
   });
 
   // ✅ Notifications: accepted emergency contact requests (for the requester)
-  const [acceptedReqs, setAcceptedReqs] = useState([]);
-  const [loadingAcceptedReqs, setLoadingAcceptedReqs] = useState(false);
+ const [outgoingReqs, setOutgoingReqs] = useState([]);
+const [loadingOutgoingReqs, setLoadingOutgoingReqs] = useState(false);
+
 
   // ✅ Mode indicator (shows for ~2.5s on screen entry)
 // ✅ Mode overlay shows ONLY when switching into Driver mode
@@ -318,96 +318,116 @@ const currentAlert = useMemo(() => {
     }, 1600);
   };
 
-    useEffect(() => {
-    let mounted = true;
-    let channel;
+   useEffect(() => {
+  let mounted = true;
+  let channel;
 
-    const loadAccepted = async () => {
-      try {
-        setLoadingAcceptedReqs(true);
+  const displayNameFromProfile = (p) => {
+    const first = String(p?.first_name || '').trim();
+    const last = String(p?.last_name || '').trim();
+    const full = `${first}${first && last ? ' ' : ''}${last}`.trim();
+    if (full) return full;
 
-        const { data: userRes } = await supabase.auth.getUser();
-        const me = userRes?.user;
-        if (!me?.id) {
-          if (mounted) setAcceptedReqs([]);
-          return;
-        }
+    const email = String(p?.email || '').trim();
+    if (email.includes('@')) return email.split('@')[0] || 'Someone';
+    return 'Someone';
+  };
 
-        // Get latest ACCEPTED requests where I am the requester
-        const { data: rows, error } = await supabase
-          .from('emergency_contact_requests')
-          .select('id, requester_id, target_id, status, created_at, responded_at')
-          .eq('requester_id', me.id)
-          .eq('status', 'accepted')
-          .order('responded_at', { ascending: false })
-          .limit(20);
-
-        if (error) throw error;
-
-        const accepted = rows || [];
-        const targetIds = [...new Set(accepted.map((r) => r.target_id).filter(Boolean))];
-
-        // Fetch names/avatars from user_profiles (best-effort)
-        let profilesById = {};
-        if (targetIds.length > 0) {
-          const { data: profs } = await supabase
-            .from('user_profiles')
-            .select('id, first_name, last_name, email, avatar_url')
-            .in('id', targetIds);
-
-          (profs || []).forEach((p) => {
-            profilesById[p.id] = p;
-          });
-        }
-
-        const mapped = accepted.map((r) => {
-          const p = profilesById[r.target_id];
-          const first = String(p?.first_name || '').trim();
-          const last = String(p?.last_name || '').trim();
-          const full = `${first}${first && last ? ' ' : ''}${last}`.trim();
-          const displayName = full || (p?.email ? p.email.split('@')[0] : 'Someone');
-
-          return {
-            id: r.id,
-            target_id: r.target_id,
-            displayName,
-            avatar_url: p?.avatar_url || null,
-            responded_at: r.responded_at || r.created_at,
-          };
-        });
-
-        if (mounted) setAcceptedReqs(mapped);
-      } catch (e) {
-        console.log('[Dashboard] loadAcceptedReqs error:', e);
-        if (mounted) setAcceptedReqs([]);
-      } finally {
-        if (mounted) setLoadingAcceptedReqs(false);
-      }
-    };
-
-    (async () => {
-      await loadAccepted();
+  const loadOutgoing = async () => {
+    try {
+      setLoadingOutgoingReqs(true);
 
       const { data: userRes } = await supabase.auth.getUser();
       const me = userRes?.user;
-      if (!me?.id) return;
+      if (!me?.id) {
+        if (mounted) setOutgoingReqs([]);
+        return;
+      }
 
-      // Realtime: any update/insert affecting my requester_id
-      channel = supabase
-        .channel(`accepted-reqs-${me.id}`)
-        .on(
-          'postgres_changes',
-          { event: '*', schema: 'public', table: 'emergency_contact_requests', filter: `requester_id=eq.${me.id}` },
-          () => loadAccepted()
-        )
-        .subscribe();
-    })();
+      // ✅ OUTGOING requests (I am requester)
+      const { data: rows, error } = await supabase
+        .from('emergency_contact_requests')
+        .select('id, requester_id, target_id, status, created_at, responded_at')
+        .eq('requester_id', me.id)
+        .order('responded_at', { ascending: false, nullsFirst: false })
+        .order('created_at', { ascending: false })
+        .limit(50);
 
-    return () => {
-      mounted = false;
-      if (channel) supabase.removeChannel(channel);
-    };
-  }, []);
+      if (error) throw error;
+
+      const reqs = rows || [];
+      const targetIds = [...new Set(reqs.map((r) => r.target_id).filter(Boolean).map(String))];
+
+      let profilesById = {};
+      if (targetIds.length > 0) {
+        const { data: profs, error: profErr } = await supabase
+          .from('user_profiles_public')
+          .select('id, first_name, last_name, email, avatar_url')
+          .in('id', targetIds);
+
+        if (profErr) throw profErr;
+
+        (profs || []).forEach((p) => {
+          profilesById[String(p.id)] = p;
+        });
+      }
+
+      const mapped = reqs.map((r) => {
+        const p = profilesById[String(r.target_id)];
+        const name = displayNameFromProfile(p);
+        const status = String(r.status || '').toLowerCase();
+        const when = r.responded_at || r.created_at;
+
+        let message = '';
+        if (status === 'pending') message = `Request sent to ${name} (pending)`;
+        else if (status === 'accepted') message = `${name} accepted your emergency contact request.`;
+        else if (status === 'declined') message = `${name} declined your emergency contact request.`;
+        else if (status === 'cancelled') message = `Request with ${name} was cancelled/disconnected.`;
+        else message = `Request with ${name} updated (${status}).`;
+
+        return {
+          id: String(r.id),
+          target_id: String(r.target_id),
+          status,
+          message,
+          avatar_url: p?.avatar_url || null,
+          when,
+        };
+      });
+
+      if (mounted) setOutgoingReqs(mapped);
+    } catch (e) {
+      console.log('[Dashboard] loadOutgoingReqs error:', e);
+      if (mounted) setOutgoingReqs([]);
+    } finally {
+      if (mounted) setLoadingOutgoingReqs(false);
+    }
+  };
+
+  (async () => {
+    await loadOutgoing();
+
+    const { data: userRes } = await supabase.auth.getUser();
+    const me = userRes?.user;
+    if (!me?.id) return;
+
+    // ✅ realtime: any update/insert affecting my outgoing requests
+    channel = supabase
+      .channel(`outgoing-reqs-${me.id}`)
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'emergency_contact_requests', filter: `requester_id=eq.${me.id}` },
+        () => loadOutgoing()
+      )
+      .subscribe();
+  })();
+
+  return () => {
+    mounted = false;
+    if (channel) supabase.removeChannel(channel);
+  };
+}, []);
+
 
   useEffect(() => {
     let mounted = true;
@@ -801,43 +821,74 @@ useEffect(() => {
           </Text>
         </View>
 
-        <Text style={{ fontSize: 14, fontWeight: '900', color: theme.textPrimary, marginBottom: 10, marginLeft: 14, }}>
-          Accepted requests
-        </Text>
+       <Text style={{ fontSize: 14, fontWeight: '900', color: '#111827', marginBottom: 10 }}>
+  Request updates
+</Text>
 
-        {loadingAcceptedReqs ? (
-          <View style={{ paddingVertical: 20, alignItems: 'center' }}>
-            <ActivityIndicator />
-            <Text style={{ marginTop: 8, color: theme.textSecondary, fontWeight: '700' }}>Fetching…</Text>
+
+     {loadingOutgoingReqs ? (
+  <View style={{ paddingVertical: 20, alignItems: 'center' }}>
+    <ActivityIndicator />
+    <Text style={{ marginTop: 8, color: '#6B7280', fontWeight: '700' }}>Fetching…</Text>
+  </View>
+) : outgoingReqs.length === 0 ? (
+  <View style={{ paddingVertical: 20 }}>
+    <Text style={{ color: '#6B7280', fontWeight: '700' }}>
+      No requests yet.
+    </Text>
+  </View>
+) : (
+  outgoingReqs.map((n) => {
+    const status = String(n.status || '').toLowerCase();
+
+    const borderColor =
+      status === 'accepted' ? '#BBF7D0'
+      : status === 'declined' ? '#FECACA'
+      : status === 'pending' ? '#E5E7EB'
+      : '#E5E7EB';
+
+    const badgeBg =
+      status === 'accepted' ? '#16A34A'
+      : status === 'declined' ? '#DC2626'
+      : status === 'pending' ? '#6B7280'
+      : '#6B7280';
+
+    const badgeText =
+      status === 'accepted' ? 'ACCEPTED'
+      : status === 'declined' ? 'DECLINED'
+      : status === 'pending' ? 'PENDING'
+      : status.toUpperCase();
+
+    return (
+      <View
+        key={n.id}
+        style={{
+          backgroundColor: 'white',
+          borderRadius: 14,
+          borderWidth: 1,
+          borderColor,
+          padding: 14,
+          marginBottom: 10,
+        }}
+      >
+        <View style={{ flexDirection: 'row', justifyContent: 'space-between', gap: 10 }}>
+          <Text style={{ color: '#111827', fontWeight: '900', flex: 1 }}>
+            {n.message}
+          </Text>
+
+          <View style={{ paddingHorizontal: 10, paddingVertical: 6, borderRadius: 999, backgroundColor: badgeBg }}>
+            <Text style={{ color: 'white', fontWeight: '900', fontSize: 10 }}>{badgeText}</Text>
           </View>
-        ) : acceptedReqs.length === 0 ? (
-          <View style={{ paddingVertical: 20 }}>
-            <Text style={{ color: theme.textSecondary, fontWeight: '700' }}>
-              No accepted requests yet.
-            </Text>
-          </View>
-        ) : (
-          acceptedReqs.map((n) => (
-            <View
-              key={n.id}
-              style={{
-                backgroundColor: theme.surface,
-                borderRadius: 14,
-                borderWidth: 1,
-                borderColor: theme.border,
-                padding: 14,
-                marginBottom: 10,
-              }}
-            >
-              <Text style={{ color: theme.idleText, fontWeight: '700' }}>
-                {n.displayName} accepted your request to be your emergency contact.
-              </Text>
-              <Text style={{ marginTop: 6, color: '#6B7280', fontWeight: '700', fontSize: 12 }}>
-                {n.responded_at ? new Date(n.responded_at).toLocaleString() : ''}
-              </Text>
-            </View>
-          ))
-        )}
+        </View>
+
+        <Text style={{ marginTop: 6, color: '#6B7280', fontWeight: '700', fontSize: 12 }}>
+          {n.when ? new Date(n.when).toLocaleString() : ''}
+        </Text>
+      </View>
+    );
+  })
+)}
+
       </ScrollView>
     </View>
   );

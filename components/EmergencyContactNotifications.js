@@ -65,7 +65,7 @@ export default function EmergencyContactNotifications({ onNavigate }) {
       // incoming pending invites
       const { data: rows, error: rowsErr } = await supabase
         .from('emergency_contact_requests')
-        .select('id, requester_id, status, created_at')
+        .select('id, requester_id, status, created_at, responded_at')
         .eq('target_id', me.id)
         .order('created_at', { ascending: false });
 
@@ -78,8 +78,9 @@ export default function EmergencyContactNotifications({ onNavigate }) {
       let profilesById = {};
       if (requesterIds.length > 0) {
         const { data: profs, error: profErr } = await supabase
-          .from('user_profiles')
-          .select('id,email,first_name,last_name,phone,avatar_url') // ✅ add avatar_url
+          .from('user_profiles_public')
+.select('id,email,first_name,last_name,avatar_url')
+
           .in('id', requesterIds);
 
         if (profErr) throw profErr;
@@ -121,7 +122,7 @@ export default function EmergencyContactNotifications({ onNavigate }) {
           type: status === 'cancelled' ? 'disconnect' : 'invite',
           status,
           message,
-          timestamp: new Date(r.created_at).toLocaleString(),
+          timestamp: new Date(r.responded_at || r.created_at).toLocaleString(),
           avatarUri,
         };
 

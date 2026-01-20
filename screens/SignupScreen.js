@@ -27,7 +27,14 @@ const handleLoginSuccess = async () => {
 };
 
 
-export default function SignupScreen({ onSignup, onBackToLogin }) {
+export default function SignupScreen({
+  onSignup,
+  onBackToLogin,
+  onCheckEmailExists, // ✅ NEW
+  onCheckPhoneExists, // ✅ NEW
+}) {
+
+
   const { theme } = useTheme();
   const [email, setEmail] = useState('');
   const [firstName, setFirstName] = useState('');
@@ -48,6 +55,10 @@ export default function SignupScreen({ onSignup, onBackToLogin }) {
 
   // ✅ keep (non-breaking) but we won't render from this directly anymore
   const [errors, setErrors] = useState({});
+// ✅ server-side validation messages (duplicates)
+const [remoteErrors, setRemoteErrors] = useState({ email: '', phone: '' });
+const [checkingRemote, setCheckingRemote] = useState({ email: false, phone: false });
+
 
   // ✅ added: loading state
   const [loading, setLoading] = useState(false);
@@ -114,8 +125,9 @@ export default function SignupScreen({ onSignup, onBackToLogin }) {
   const firstNameError = useMemo(() => {
     const v = String(firstName || '').trim();
     if (!v) return 'First name is required.';
-    // no numbers allowed
-    if (/\d/.test(v)) return 'First name must not contain numbers.';
+// letters only (no numbers / no special characters)
+if (!/^[A-Za-z]+$/.test(v)) return 'First name must contain letters only (no numbers/special characters).';
+
     // max 20 letters (count letters only)
     const letters = (v.match(/[A-Za-z]/g) || []).length;
     if (letters > 20) return 'First name must not exceed 20 letters.';
@@ -127,7 +139,8 @@ export default function SignupScreen({ onSignup, onBackToLogin }) {
   const lastNameError = useMemo(() => {
     const v = String(lastName || '').trim();
     if (!v) return 'Last name is required.';
-    if (/\d/.test(v)) return 'Last name must not contain numbers.';
+    if (!/^[A-Za-z]+$/.test(v)) return 'Last name must contain letters only (no numbers/special characters).';
+
     const letters = (v.match(/[A-Za-z]/g) || []).length;
     if (letters > 20) return 'Last name must not exceed 20 letters.';
     if (letters === 0) return 'Last name must contain letters only.';
@@ -141,6 +154,70 @@ export default function SignupScreen({ onSignup, onBackToLogin }) {
     if (!v.startsWith('9')) return 'PH mobile numbers must start with 9.';
     return '';
   }, [phoneDigits]);
+// =========================
+// REALTIME DUPLICATE CHECKS (DEBOUNCED)
+// =========================
+useEffect(() => {
+  let alive = true;
+
+  // only check if user has interacted and local validation passes
+  if (!touched.email) return;
+  if (emailError) return;
+
+  const t = setTimeout(async () => {
+    if (!onCheckEmailExists) return;
+    setCheckingRemote((s) => ({ ...s, email: true }));
+
+    const res = await onCheckEmailExists(String(email || '').trim().toLowerCase());
+
+    if (!alive) return;
+    setCheckingRemote((s) => ({ ...s, email: false }));
+
+    if (!res?.ok) return; // ignore network errors (don’t spam red)
+    if (res.exists) {
+      setRemoteErrors((e) => ({ ...e, email: 'This email is already existing. please choose another one.' }));
+    } else {
+      setRemoteErrors((e) => ({ ...e, email: '' }));
+    }
+  }, 450);
+
+  return () => {
+    alive = false;
+    clearTimeout(t);
+  };
+}, [email, touched.email, emailError, onCheckEmailExists]);
+
+useEffect(() => {
+  let alive = true;
+
+  if (!touched.phone) return;
+  if (phoneError) return;
+
+  const phoneE164 = normalizePHToE164(`+63${phoneDigits}`);
+  if (!phoneE164) return;
+
+  const t = setTimeout(async () => {
+    if (!onCheckPhoneExists) return;
+    setCheckingRemote((s) => ({ ...s, phone: true }));
+
+    const res = await onCheckPhoneExists(phoneE164);
+
+    if (!alive) return;
+    setCheckingRemote((s) => ({ ...s, phone: false }));
+
+    if (!res?.ok) return;
+    if (res.exists) {
+      setRemoteErrors((e) => ({ ...e, phone: 'This phone number is already existing. please choose another one.' }));
+    } else {
+      setRemoteErrors((e) => ({ ...e, phone: '' }));
+    }
+  }, 450);
+
+  return () => {
+    alive = false;
+    clearTimeout(t);
+  };
+}, [phoneDigits, touched.phone, phoneError, onCheckPhoneExists]);
 
   const passwordRules = useMemo(() => {
     const p = String(password || '');
@@ -154,19 +231,26 @@ export default function SignupScreen({ onSignup, onBackToLogin }) {
   }, [password]);
 
   const passwordError = useMemo(() => {
-    if (!String(password || '')) return 'Password is required.';
-    if (!passwordRules.hasMinLen) return 'Password must be at least 8 characters.';
-    if (!passwordRules.hasUpper) return 'Password must contain at least 1 uppercase letter.';
-    if (!passwordRules.hasNumOrSymbol) return 'Password must contain at least 1 number or symbol.';
-    return '';
-  }, [password, passwordRules]);
+  // ✅ OTP signup: password is OPTIONAL
+  const p = String(password || '');
+  if (!p) return '';
+  if (!passwordRules.hasMinLen) return 'Password must be at least 8 characters.';
+  if (!passwordRules.hasUpper) return 'Password must contain at least 1 uppercase letter.';
+  if (!passwordRules.hasNumOrSymbol) return 'Password must contain at least 1 number or symbol.';
+  return '';
+}, [password, passwordRules]);
 
   const confirmError = useMemo(() => {
-    const c = String(confirmPassword || '');
-    if (!c) return 'Confirm password is required.';
-    if (String(password || '') !== c) return 'Passwords do not match.';
-    return '';
-  }, [confirmPassword, password]);
+  // ✅ OTP signup: confirm is only required IF password is typed
+  const p = String(password || '');
+  const c = String(confirmPassword || '');
+
+  if (!p && !c) return '';
+  if (p && !c) return 'Confirm password is required.';
+  if (p !== c) return 'Passwords do not match.';
+  return '';
+}, [confirmPassword, password]);
+
 
   const termsError = useMemo(() => {
     if (!agreedToTerms) return 'You must agree to the terms and conditions.';
@@ -191,18 +275,26 @@ export default function SignupScreen({ onSignup, onBackToLogin }) {
   }, [password, passwordRules]);
 
   // ✅ Button should only be active when ALL are valid + checkbox checked (even if not touched)
-  const formReady = useMemo(() => {
-    const allValid =
-      !emailError &&
-      !firstNameError &&
-      !lastNameError &&
-      !phoneError &&
-      !passwordError &&
-      !confirmError &&
-      agreedToTerms;
+const formReady = useMemo(() => {
+  const allValid =
+    !emailError &&
+    !firstNameError &&
+    !lastNameError &&
+    !phoneError &&
+    !passwordError &&
+    !confirmError &&
+    agreedToTerms &&
+    !remoteErrors.email &&
+    !remoteErrors.phone &&
+    !checkingRemote.email &&
+    !checkingRemote.phone;
 
-    return allValid && !loading;
-  }, [emailError, firstNameError, lastNameError, phoneError, passwordError, confirmError, agreedToTerms, loading]);
+  return allValid && !loading;
+}, [
+  emailError, firstNameError, lastNameError, phoneError, passwordError, confirmError,
+  agreedToTerms, loading, remoteErrors.email, remoteErrors.phone, checkingRemote.email, checkingRemote.phone
+]);
+
 
   // ✅ show validation only when that field has been focused/tapped
   const uiEmailError = touched.email ? emailError : '';
@@ -219,8 +311,12 @@ export default function SignupScreen({ onSignup, onBackToLogin }) {
     if (firstNameError) newErrors.firstName = firstNameError;
     if (lastNameError) newErrors.lastName = lastNameError;
     if (phoneError) newErrors.phoneNumber = phoneError;
-    if (passwordError) newErrors.password = passwordError;
-    if (confirmError) newErrors.confirmPassword = confirmError;
+    // ✅ only validate password/confirm if user typed password (OTP signup doesn't require it)
+if (String(password || '').length > 0) {
+  if (passwordError) newErrors.password = passwordError;
+  if (confirmError) newErrors.confirmPassword = confirmError;
+}
+
     if (!agreedToTerms) newErrors.terms = termsError;
 
     setErrors(newErrors);
@@ -246,16 +342,43 @@ export default function SignupScreen({ onSignup, onBackToLogin }) {
     const start = Date.now();
 
     try {
-      setLoading(true);
-      await Promise.resolve(
-        onSignup({
-          email: String(email).trim().toLowerCase(),
-          firstName: String(firstName).trim(),
-          lastName: String(lastName).trim(),
-          phone: phoneE164, // ✅ already +63XXXXXXXXXX
-          password,
-        })
-      );
+     setLoading(true);
+// ✅ block if duplicates already detected
+if (remoteErrors.email || remoteErrors.phone) {
+  if (remoteErrors.email) setTouched((s) => ({ ...s, email: true }));
+  if (remoteErrors.phone) setTouched((s) => ({ ...s, phone: true }));
+  Alert.alert('Fix required', 'Please use a different email/phone.');
+  return;
+}
+
+  const res = await Promise.resolve(
+   onSignup({
+  email: String(email).trim().toLowerCase(),
+  firstName: String(firstName).trim(),
+  lastName: String(lastName).trim(),
+  phone: phoneE164,
+    password, // ✅ add back
+})
+
+  );
+
+  if (res && res.ok === false) {
+    // show message under correct field if provided
+    if (res.field === 'email') {
+      setRemoteErrors((e) => ({ ...e, email: res.message || 'Invalid email' }));
+      setTouched((s) => ({ ...s, email: true }));
+      return;
+    }
+    if (res.field === 'phone') {
+      setRemoteErrors((e) => ({ ...e, phone: res.message || 'Invalid phone' }));
+      setTouched((s) => ({ ...s, phone: true }));
+      return;
+    }
+
+    // fallback
+    Alert.alert('Sign up failed', res.message || 'Please check your inputs.');
+    return;
+  }
     } finally {
       const elapsed = Date.now() - start;
       const remaining = Math.max(0, MIN_LOADING_MS - elapsed);
@@ -354,7 +477,10 @@ export default function SignupScreen({ onSignup, onBackToLogin }) {
           {renderInput({
             label: 'Email',
             value: email,
-            onChange: (t) => setEmail(String(t || '')),
+            onChange: (t) => {
+  setEmail(String(t || ''));
+  setRemoteErrors((e) => ({ ...e, email: '' }));
+},
             keyboardType: 'email-address',
             lower: true,
             disabled: loading,
@@ -362,6 +488,7 @@ export default function SignupScreen({ onSignup, onBackToLogin }) {
             onFocus: () => setTouched((s) => ({ ...s, email: true })),
           })}
           {!!uiEmailError && <Text style={styles.error}>{uiEmailError}</Text>}
+{!!remoteErrors.email && <Text style={styles.error}>{remoteErrors.email}</Text>}
 
           {/* First Name */}
           {renderInput({
@@ -396,14 +523,20 @@ export default function SignupScreen({ onSignup, onBackToLogin }) {
                 placeholderTextColor={theme.placeholder}
                 keyboardType="phone-pad"
                 value={phoneDigits}
-                onChangeText={(t) => setPhoneDigits(normalizePHToDigits10(t))}
+                onChangeText={(t) => {
+  setPhoneDigits(normalizePHToDigits10(t));
+  setRemoteErrors((e) => ({ ...e, phone: '' }));
+}}
                 maxLength={10}
                 editable={!loading}
                 onFocus={() => setTouched((s) => ({ ...s, phone: true }))}
               />
+            
+
             </View>
           </View>
           {!!uiPhoneError && <Text style={styles.error}>{uiPhoneError}</Text>}
+{!!remoteErrors.phone && <Text style={styles.error}>{remoteErrors.phone}</Text>}
 
 
           {/* Password (with eye) */}

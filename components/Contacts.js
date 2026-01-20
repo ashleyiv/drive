@@ -399,6 +399,53 @@ setResults((prev) => prev.filter((x) => String(x.id) !== String(targetUserId)));
     setDeleteModalVisible(false);
     setDeleteTarget(null);
   };
+  const cancelPendingRequest = async (contact) => {
+    if (!contact) return;
+
+    try {
+      setDeleting(true); // reuse spinner state + disables modal buttons
+
+      const { data: userRes, error: userErr } = await supabase.auth.getUser();
+      if (userErr) throw userErr;
+
+      const me = userRes?.user;
+      if (!me?.id) {
+        showToast('Not logged in');
+        return;
+      }
+
+      // Only allow cancelling PENDING requests
+      const { data: updatedRows, error } = await supabase
+        .from('emergency_contact_requests')
+        .update({ status: 'cancelled', responded_at: new Date().toISOString() })
+        .eq('id', contact.id)
+        .eq('requester_id', me.id)
+        .eq('status', 'pending')
+        .select('id');
+
+      if (error) throw error;
+
+      if (!updatedRows || updatedRows.length === 0) {
+        throw new Error('Cancel failed (no rows updated). Check RLS policies for UPDATE.');
+      }
+
+      // ✅ Optimistic remove from pending list
+      setContactsPending((prev) => prev.filter((x) => String(x.id) !== String(contact.id)));
+
+      showToast('Request cancelled');
+
+      // If modal is open, close it
+      setDeleteModalVisible(false);
+      setDeleteTarget(null);
+
+      await loadMyContacts();
+    } catch (e) {
+      console.log('[Contacts] cancelPendingRequest error:', e);
+      showToast(e?.message || 'Failed to cancel request');
+    } finally {
+      setDeleting(false);
+    }
+  };
 
   const confirmDelete = async () => {
     if (!deleteTarget) return;
@@ -510,19 +557,28 @@ setResults((prev) => prev.filter((x) => String(x.id) !== String(targetUserId)));
         </View>
 
         {/* right action: trash for accepted, clock for pending */}
-        {item.status === 'accepted' ? (
-          <Pressable
-            onPress={() => openDeleteModal(item)}
-            style={styles.trashBtn}
-            hitSlop={10}
-          >
-            <Ionicons name="trash-outline" size={18} color="#1D4ED8" />
-          </Pressable>
-        ) : (
-          <View style={styles.trashBtnDisabled}>
-            <Feather name="clock" size={18} color="#6B7280" />
-          </View>
-        )}
+       {item.status === 'accepted' ? (
+  <Pressable
+    onPress={() => openDeleteModal(item)}
+    style={styles.trashBtn}
+    hitSlop={10}
+  >
+    <Ionicons name="trash-outline" size={18} color="#1D4ED8" />
+  </Pressable>
+) : item.status === 'pending' ? (
+  <Pressable
+    onPress={() => openDeleteModal(item)}
+    style={styles.trashBtn}
+    hitSlop={10}
+  >
+    <Ionicons name="arrow-undo-outline" size={18} color="#1D4ED8" />
+  </Pressable>
+) : (
+  <View style={styles.trashBtnDisabled}>
+    <Feather name="clock" size={18} color="#6B7280" />
+  </View>
+)}
+
       </TouchableOpacity>
     );
   };
@@ -697,19 +753,33 @@ setResults((prev) => prev.filter((x) => String(x.id) !== String(targetUserId)));
       </Modal>
 
       {/* ✅ Delete Confirmation Modal (matches screenshot) */}
-      <Modal visible={deleteModalVisible} transparent animationType="fade" onRequestClose={closeDeleteModal}>
+     <Modal visible={deleteModalVisible} transparent animationType="fade" onRequestClose={closeDeleteModal}>
         <View style={styles.deleteOverlay}>
-          <View style={styles.deleteBox}>
-            <Text style={styles.deleteQuestion}>
-              Are you sure to delete this user on your emergency contact?
-            </Text>
+          <View style={[styles.deleteBox, { backgroundColor: theme.surface }]}>
+           <Text style={[styles.deleteQuestion, { color: theme.danger }]}>
+          {deleteTarget?.status === 'pending'
+            ? 'Cancel this pending request?'
+            : 'Disconnect this emergency contact?'}
+        </Text>
 
             <View style={styles.deleteActions}>
               <Pressable onPress={closeDeleteModal} disabled={deleting} style={styles.deleteBtn}>
                 <Text style={styles.deleteBtnText}>Cancel</Text>
               </Pressable>
 
-              <Pressable onPress={confirmDelete} disabled={deleting} style={styles.deleteBtn}>
+              <Pressable
+  onPress={() => {
+    if (!deleteTarget) return;
+    if (deleteTarget.status === 'pending') {
+      cancelPendingRequest(deleteTarget);
+      return;
+    }
+    confirmDelete();
+  }}
+  disabled={deleting}
+  style={styles.deleteBtn}
+>
+
                 <Text style={[styles.deleteBtnText, { color: '#1D4ED8', fontWeight: '800' }]}>
                   {deleting ? '...' : 'Confirm'}
                 </Text>

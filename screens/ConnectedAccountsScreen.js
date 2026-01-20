@@ -238,31 +238,50 @@ export default function ConnectedAccountsScreen({ onNavigate }) {
       {/* Action modal (simple + functional) */}
       {actionOpen && (
         <View style={styles.modalOverlay}>
-          <View style={[styles.modalCard, { backgroundColor: theme.card }]}>
-            <Text style={[styles.modalTitle, { color: theme.text }]}>Actions</Text>
-            <Text style={[styles.modalText, { color: theme.subText }]}>
-              {selected?.name || 'Driver'}
-            </Text>
+      <View style={[styles.modalCard, { backgroundColor: theme.surface, borderColor: theme.border }]}>
+  <Text style={[styles.modalTitle, { color: theme.textPrimary }]}>Actions</Text>
+  <Text style={[styles.modalText, { color: theme.textSecondary }]}>
+    {selected?.name || 'Driver'}
+  </Text>
 
-            <Pressable
-              onPress={() => {
-                Alert.alert(
-                  'Disconnect?',
-                  `Disconnect ${selected?.name || 'this driver'}?`,
-                  [
-                    { text: 'Cancel', style: 'cancel' },
-                    { text: 'Disconnect', style: 'destructive', onPress: disconnectSelected },
-                  ]
-                );
-              }}
-              style={[styles.actionBtn, { backgroundColor: '#FEE2E2' }]}
-            >
-              <Text style={{ color: theme.danger, fontWeight: '900' }}>Disconnect</Text>
-            </Pressable>
 
-            <Pressable onPress={closeActions} style={[styles.actionBtn, { backgroundColor: theme.divider }]}>
-              <Text style={{ color: theme.text, fontWeight: '800' }}>Close</Text>
-            </Pressable>
+           <Pressable
+  onPress={() => {
+    Alert.alert(
+      'Disconnect?',
+      `Disconnect ${selected?.name || 'this driver'}?`,
+      [
+        { text: 'Cancel', style: 'cancel' },
+        { text: 'Disconnect', style: 'destructive', onPress: disconnectSelected },
+      ]
+    );
+  }}
+  style={[
+    styles.actionBtn,
+    {
+      backgroundColor: theme.surface,
+      borderWidth: 1,
+      borderColor: theme.danger,
+    },
+  ]}
+>
+  <Text style={{ color: theme.danger, fontWeight: '900' }}>Disconnect</Text>
+</Pressable>
+
+<Pressable
+  onPress={closeActions}
+  style={[
+    styles.actionBtn,
+    {
+      backgroundColor: theme.surface,
+      borderWidth: 1,
+      borderColor: theme.border,
+    },
+  ]}
+>
+  <Text style={{ color: theme.textPrimary, fontWeight: '800' }}>Close</Text>
+</Pressable>
+
           </View>
         </View>
       )}
@@ -313,18 +332,22 @@ const styles = StyleSheet.create({
   sub: { fontSize: 12, fontWeight: '700', marginTop: 2 },
 
   modalOverlay: {
-    position: 'absolute',
-    top: 0, left: 0, right: 0, bottom: 0,
-    backgroundColor: 'rgba(0,0,0,0.35)',
-    justifyContent: 'center',
-    alignItems: 'center',
-    paddingHorizontal: 18,
-  },
-  modalCard: {
-    width: '100%',
-    borderRadius: 16,
-    padding: 16,
-  },
+  position: 'absolute',
+  top: 0, left: 0, right: 0, bottom: 0,
+  backgroundColor: 'rgba(0,0,0,0.35)',
+  justifyContent: 'center',
+  alignItems: 'center',
+  paddingHorizontal: 18,
+},
+modalCard: {
+  width: '100%',
+  maxWidth: 420,
+  borderRadius: 16,
+  padding: 16,
+  borderWidth: 1,
+},
+
+
   modalTitle: { fontSize: 16, fontWeight: '900' },
   modalText: { marginTop: 6, fontSize: 13, fontWeight: '700' },
 

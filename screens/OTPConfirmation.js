@@ -30,6 +30,7 @@ export default function OTPConfirmation({
   onConfirm,
   onResend,
   onBack,
+  onAttemptsExhausted, // ✅ NEW optional
 }) {
   const inputsRef = useRef([]);
 
@@ -114,30 +115,52 @@ export default function OTPConfirmation({
     }
   };
 
-  const handleSubmit = async () => {
-    if (disableVerify) {
-      if (attemptsLeft === 0) setError('Too many attempts. Please resend the code.');
-      if (isExpired) setError('Code expired. Please resend the code.');
+ const handleSubmit = async () => {
+  if (disableVerify) {
+    if (attemptsLeft === 0) setError('Too many attempts. Please resend the code.');
+    if (isExpired) setError('Code expired. Please resend the code.');
+    return;
+  }
+
+  setIsVerifying(true);
+  setError('');
+
+  const triggerExhaustedIfNeeded = (nextAttempts) => {
+    if (nextAttempts >= maxTry) {
+      // ✅ go back to login if provided
+      setTimeout(() => onAttemptsExhausted?.(), 0);
+    }
+  };
+
+  try {
+    const res = await Promise.resolve(onConfirm?.(token));
+
+    // ✅ handle invalid code response from parent
+    if (res && typeof res === 'object' && res.ok === false) {
+      setAttemptsUsed((prev) => {
+        const next = prev + 1;
+        triggerExhaustedIfNeeded(next);
+        return next;
+      });
+
+      setError(res.message || 'Invalid code. Please try again.');
       return;
     }
 
-    setIsVerifying(true);
-    setError('');
+    // ✅ success case: do nothing here (parent usually navigates)
+  } catch (e) {
+    setAttemptsUsed((prev) => {
+      const next = prev + 1;
+      triggerExhaustedIfNeeded(next);
+      return next;
+    });
 
-    try {
-      const res = await Promise.resolve(onConfirm?.(token));
-      if (res && typeof res === 'object' && res.ok === false) {
-        setAttemptsUsed((a) => a + 1);
-        setError(res.message || 'Invalid code. Please try again.');
-        return;
-      }
-    } catch (e) {
-      setAttemptsUsed((a) => a + 1);
-      setError(e?.message || 'Invalid code. Please try again.');
-    } finally {
-      setIsVerifying(false);
-    }
-  };
+    setError(e?.message || 'Invalid code. Please try again.');
+  } finally {
+    setIsVerifying(false);
+  }
+};
+
 
   const handleResend = async () => {
     if (!canResend) return;

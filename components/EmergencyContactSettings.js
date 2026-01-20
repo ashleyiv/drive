@@ -19,6 +19,7 @@ import About from './About';
 import PrivacyPolicy from './PrivacyPolicy';
 import TermsOfService from './TermsOfService';
 import useTheme from '../theme/useTheme';
+import AccountSettings from './AccountSettings';
 const ENABLE_MODE_SWITCH = false; // ✅ Disable switching UI without deleting logic
 
 
@@ -44,6 +45,9 @@ export default function EmergencyContactSettings({ onNavigate, onSwitchToDriver 
   const [profileLoading, setProfileLoading] = useState(true);
   const [profileName, setProfileName] = useState('Emergency Contact');
   const [profilePhone, setProfilePhone] = useState('—');
+  const [profileEmail, setProfileEmail] = useState('—'); // ✅ add
+  const [showAccountSettings, setShowAccountSettings] = useState(false); // ✅ add
+
 
   // ✅ Avatar state
   const [profileAvatarUrl, setProfileAvatarUrl] = useState(null);
@@ -62,10 +66,13 @@ const { count: pendingInviteCount } = usePendingInviteCount();
         if (userErr) throw userErr;
 
         const user = userRes?.user;
+        const authEmail = String(user?.email || '—').trim().toLowerCase();
+
         if (!user?.id) {
           if (isMounted) {
             setProfileName('Emergency Contact');
             setProfilePhone('—');
+            setProfileEmail(authEmail);
             setProfileAvatarUrl(null);
           }
           return;
@@ -87,8 +94,10 @@ const { count: pendingInviteCount } = usePendingInviteCount();
           return;
         }
 
-        const fullName = displayNameFromProfile(profile);
+                const fullName = displayNameFromProfile(profile);
         const phonePretty = formatPHPretty(profile?.phone) || '—';
+        const emailFinal = String(profile?.email || authEmail || '—').trim().toLowerCase();
+
 
         // ✅ Resolve avatar first (DB may store full URL or storage path)
         const resolvedDbAvatar = resolveAvatarUrl(profile?.avatar_url);
@@ -96,6 +105,7 @@ const { count: pendingInviteCount } = usePendingInviteCount();
         if (isMounted) {
           setProfileName(fullName);
           setProfilePhone(phonePretty);
+          setProfileEmail(emailFinal);
 
           setProfileAvatarUrl(resolvedDbAvatar ?? null);
           setAvatarCacheBust(Date.now());
@@ -172,6 +182,18 @@ const { count: pendingInviteCount } = usePendingInviteCount();
   );
 
   const avatarDisplayUri = profileAvatarUrl ? `${profileAvatarUrl}?t=${avatarCacheBust}` : null;
+  // ✅ same pattern as Menu.js (inline AccountSettings screen)
+  if (showAccountSettings) {
+    return (
+      <AccountSettings
+        userName={profileName}
+        userPhone={profilePhone}
+        userEmail={profileEmail}
+        onBack={() => setShowAccountSettings(false)}
+        darkMode={isDark}
+      />
+    );
+  }
 
   return (
     <View style={[styles.container, { backgroundColor: theme.background }]}>
@@ -186,8 +208,11 @@ const { count: pendingInviteCount } = usePendingInviteCount();
               <Text style={styles.headerSubtitle}>Manage your preferences</Text>
             </View>
 
-            {/* Profile card */}
-            <View style={[styles.card, { backgroundColor: theme.card }]}>
+            {/* Profile card (clickable like Menu.js) */}
+            <Pressable
+              style={[styles.card, { backgroundColor: theme.card }]}
+              onPress={() => setShowAccountSettings(true)}
+            >
               <View style={styles.row}>
                 <View style={[styles.avatar, { backgroundColor: theme.secondary }]}>
                   {avatarDisplayUri ? (
@@ -208,8 +233,9 @@ const { count: pendingInviteCount } = usePendingInviteCount();
                     {profileLoading ? ' ' : profilePhone}
                   </Text>
                 </View>
-              </View>
-            </View>
+                           </View>
+            </Pressable>
+
 
             {/* ✅ Mode card hidden (logic kept) */}
             {ENABLE_MODE_SWITCH && (
