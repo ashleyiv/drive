@@ -2,7 +2,9 @@ import React, { useEffect, useRef, useState } from 'react';
 
 import { View, StyleSheet, Alert } from 'react-native';
 import * as Location from 'expo-location';
-import { supabase } from './lib/supabase';
+import { supabase, supabaseEphemeral, SUPABASE_STORAGE_KEY } from './lib/supabase';
+
+
 
 /* SCREENS */
 import SplashScreen from './screens/SplashScreen';
@@ -13,6 +15,7 @@ import SignupScreen from './screens/SignupScreen';
 import OTPConfirmation from './screens/OTPConfirmation';
 import ConnectedAccountsScreen from './screens/ConnectedAccountsScreen';
 import { onSignupSendOtp, onConfirmOtp, onResendOtp } from './lib/emailOtpSignup';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 
 /* AUTH */
 import ForgotPassword from './components/ForgotPassword';
@@ -52,11 +55,71 @@ function AppContent() {
   const [navParams, setNavParams] = useState(null);
   const [screenStack, setScreenStack] = useState([]);
   const otpInFlightRef = useRef(false);
+  // ✅ PATCH 2: anti-enumeration + attempt limiter
+const loginFailCountRef = useRef(0);
+const loginLockUntilRef = useRef(0); // timestamp (ms)
+const LOGIN_LOCK_MS = 5 * 60 * 1000; // 5 mins
+
   // ✅ Mode switch loading screen (prevents UI changing immediately)
   const [modeSwitchConfig, setModeSwitchConfig] = useState(null);
   const [email, setEmail] = useState('');
   const [otpSentAt, setOtpSentAt] = useState(null);
 const [otpSending, setOtpSending] = useState(false);
+
+// ===== Login attempt guard (non-breaking) =====
+const LOGIN_LOCK_KEY_PREFIX = 'login_lock_';
+const LOGIN_FAILS_KEY_PREFIX = 'login_fails_';
+const MAX_FAILS_BEFORE_HINT = 5;        // show "Forgot password?" hint at 5
+const MAX_FAILS_BEFORE_LOCK = 6;        // lock at 6
+const LOCK_MS = 5 * 60 * 1000;          // 5 minutes
+
+const getEmailKey = (rawEmail) => String(rawEmail || '').trim().toLowerCase();
+
+const getLockKeys = (email) => {
+  const key = getEmailKey(email);
+  return {
+    failsKey: `${LOGIN_FAILS_KEY_PREFIX}${key}`,
+    lockKey: `${LOGIN_LOCK_KEY_PREFIX}${key}`,
+  };
+};
+
+const getLoginGuardState = async (email) => {
+  const { failsKey, lockKey } = getLockKeys(email);
+  const [failsRaw, lockUntilRaw] = await Promise.all([
+    AsyncStorage.getItem(failsKey),
+    AsyncStorage.getItem(lockKey),
+  ]);
+
+  const fails = Number(failsRaw || 0) || 0;
+  const lockUntil = Number(lockUntilRaw || 0) || 0;
+  const now = Date.now();
+
+  const locked = lockUntil > now;
+  const remainingMs = locked ? (lockUntil - now) : 0;
+
+  return { fails, locked, remainingMs };
+};
+
+const setLoginFails = async (email, fails) => {
+  const { failsKey } = getLockKeys(email);
+  await AsyncStorage.setItem(failsKey, String(fails));
+};
+
+const setLoginLock = async (email, lockUntil) => {
+  const { lockKey } = getLockKeys(email);
+  await AsyncStorage.setItem(lockKey, String(lockUntil));
+};
+
+const resetLoginGuard = async (email) => {
+  const { failsKey, lockKey } = getLockKeys(email);
+  await Promise.all([
+    AsyncStorage.removeItem(failsKey),
+    AsyncStorage.removeItem(lockKey),
+  ]);
+};
+
+
+
 const checkEmailExists = async (email) => {
   try {
     const { data, error } = await supabase.rpc('email_exists', { p_email: String(email || '').trim().toLowerCase() });
@@ -232,30 +295,45 @@ return { ok: true };
   };
 
   const checkEmailPassword = async ({ email, password }) => {
-    const formatted = normalizeEmail(email);
+  const formatted = normalizeEmail(email);
 
-    if (!formatted) return { ok: false, message: 'Please enter your email.' };
-    if (!password) return { ok: false, message: 'Please enter your password.' };
+  if (!formatted) return { ok: false, message: 'Please enter your email.' };
+  if (!password) return { ok: false, message: 'Please enter your password.' };
 
-    // ✅ Validate credentials using Supabase Auth (source of truth)
-    const { data, error } = await supabase.auth.signInWithPassword({
-      email: formatted,
-      password,
-    });
+  // ✅ Use ephemeral client so NO refresh token is saved to AsyncStorage
+  const { error } = await supabaseEphemeral.auth.signInWithPassword({
+    email: formatted,
+    password,
+  });
+if (error) {
+  const msg = String(error?.message || '').toLowerCase();
 
-    if (error) {
-      // keep message user-friendly
-      return { ok: false, message: 'Incorrect password. Please try again.' };
-    }
+  // ✅ common cases when password login is not possible / user created by OTP
+  if (
+    msg.includes('invalid login credentials') ||
+    msg.includes('email not confirmed') ||
+    msg.includes('user not found')
+  ) {
+    return {
+      ok: false,
+      message:
+        'This account needs a password reset. Please tap "Forgot password" to set your password again.',
+      needsReset: true,
+    };
+  }
 
-    // ✅ IMPORTANT: sign out immediately so access is gated by OTP
-    // (you still require email OTP next)
-    try {
-      await supabase.auth.signOut();
-    } catch {}
+  return { ok: false, message: 'Incorrect password. Please try again.' };
+}
 
-    return { ok: true, email: formatted };
-  };
+
+  // optional: clear ephemeral in-memory auth (won't touch AsyncStorage)
+  try {
+    await supabaseEphemeral.auth.signOut();
+  } catch {}
+
+  return { ok: true, email: formatted };
+};
+
 
   useEffect(() => {
     (async () => {
@@ -296,48 +374,75 @@ return { ok: true };
 
   // LOGIN: email+password -> send email OTP -> OTP screen
   const handleLogin = async (payload) => {
-    if (payload === 'google') {
-      Alert.alert('Not implemented', 'Google sign-in is not wired up yet.');
-      return { ok: false };
+  if (payload === 'google') {
+    Alert.alert('Not implemented', 'Google sign-in is not wired up yet.');
+    return { ok: false };
+  }
+
+  // ✅ lockout check
+  const now = Date.now();
+  if (loginLockUntilRef.current && now < loginLockUntilRef.current) {
+    Alert.alert('Login blocked', 'Please come back after 5 mins to login again.');
+    return { ok: false, locked: true };
+  }
+
+  // lock expired -> clear
+  if (loginLockUntilRef.current && now >= loginLockUntilRef.current) {
+    loginLockUntilRef.current = 0;
+    loginFailCountRef.current = 0;
+  }
+
+  const userEmail = payload?.email;
+  const password = payload?.password;
+
+  const formattedEmail = normalizeEmail(userEmail);
+
+  // ✅ Do NOT check email existence (prevents user enumeration)
+  // ✅ Always treat failures as "wrong email or password"
+  const creds = await checkEmailPassword({ email: formattedEmail, password });
+
+  if (!creds.ok) {
+    // count failures
+    loginFailCountRef.current = (loginFailCountRef.current || 0) + 1;
+
+    // 6th failure -> lock for 5 mins
+    if (loginFailCountRef.current >= 6) {
+      loginLockUntilRef.current = Date.now() + LOGIN_LOCK_MS;
+      Alert.alert('Login blocked', 'Please come back after 5 mins to login again.');
+      return { ok: false, locked: true };
     }
 
-    const userEmail = payload?.email;
-    const password = payload?.password;
-
-    // ✅ NEW: check email existence first (so we can show "Email not found")
-    const formattedEmail = normalizeEmail(userEmail);
-    const existsRes = await checkEmailExists(formattedEmail);
-    
-
-    if (!existsRes.ok) {
-      Alert.alert('Login failed', existsRes.message);
-      return { ok: false, message: existsRes.message };
+    // 5th failure -> show hint
+    if (loginFailCountRef.current >= 5) {
+      Alert.alert(
+        'Login failed',
+        'Wrong email or password. Please try again.\n\nHave you forgotten your password? Click "Forgot password".'
+      );
+      return { ok: false, message: 'Wrong email or password. Please try again.', showForgotHint: true };
     }
 
-    if (!existsRes.exists) {
-      Alert.alert('Email not found', 'Email not found. Please try to sign up.');
-      return { ok: false, field: 'email', message: 'Email not found. Please try to sign up.' };
-    }
+    // 1st–4th failure -> generic message only
+    Alert.alert('Login failed', 'Wrong email or password. Please try again.');
+    return { ok: false, message: 'Wrong email or password. Please try again.' };
+  }
 
-    // ✅ Email exists -> now check password
-    const creds = await checkEmailPassword({ email: formattedEmail, password });
-    if (!creds.ok) {
-      Alert.alert('Login failed', creds.message);
-      return creds;
-    }
+  // ✅ password ok -> reset counters
+  loginFailCountRef.current = 0;
+  loginLockUntilRef.current = 0;
 
-    const res = await sendEmailOtp({ email: creds.email, shouldCreateUser: false });
-    if (!res.ok) {
-      if (!res.silent) Alert.alert('Failed to send code', res.message);
-      return res;
-    }
+  // ✅ proceed with OTP step (still shouldCreateUser=false)
+  const res = await sendEmailOtp({ email: creds.email, shouldCreateUser: false });
+  if (!res.ok) {
+    if (!res.silent) Alert.alert('Failed to send code', res.message);
+    return res;
+  }
 
-    setOtpFlow('login');
-    setEmail(res.email);
-    setOtpSentAt(Date.now());
-    setCurrentScreen('login-otp');
-    return { ok: true };
-  };
+  setOtpFlow('login');
+  setEmail(res.email);
+  setOtpSentAt(Date.now());
+  setCurrentScreen('login-otp');
+  return { ok: true };
+};
 
 
   // SIGNUP: email+phone+password -> send email OTP -> OTP screen
@@ -397,31 +502,52 @@ const handleSignup = async (data) => {
 const handleOTPConfirm = async (token) => {
   // ✅ SIGNUP: use your lib helper (it verifies OTP + upserts profiles)
   if (otpFlow === 'signup') {
-    const done = await onConfirmOtp({ email, token });
-    if (!done.ok) return done;
+  const done = await onConfirmOtp({ email, token });
+  if (!done.ok) return done;
 
-    // requirement: go back to login after signup
-    try {
-      await supabase.auth.signOut();
-    } catch {}
-
-    setOtpFlow(null);
-    setSignupData(null);
-    setEmail('');
-    setOtpSentAt(null);
-    setCurrentScreen('login');
-    return { ok: true };
+  // ✅ CRITICAL: set password in Supabase Auth (so signInWithPassword works)
+  const pw = String(signupData?.password || '');
+  if (pw.trim().length >= 6) {
+    const { error: pwErr } = await supabase.auth.updateUser({ password: pw });
+    if (pwErr) {
+      Alert.alert(
+        'Signup warning',
+        'Account created, but password was not saved. Please use "Forgot password" to set it.'
+      );
+    }
+  } else {
+    Alert.alert(
+      'Signup warning',
+      'Account created, but password was missing. Please use "Forgot password" to set it.'
+    );
   }
+
+  // requirement: go back to login after signup
+  try {
+    await supabase.auth.signOut();
+  } catch {}
+
+  setOtpFlow(null);
+  setSignupData(null);
+  setEmail('');
+  setOtpSentAt(null);
+  setCurrentScreen('login');
+  return { ok: true };
+}
 
   // ✅ for login/forgot: keep your old verifyEmailOtp flow
   const res = await verifyEmailOtp({ email, token });
   if (!res.ok) return res;
 
-  if (otpFlow === 'login') {
-    setUserMode('emergency-contact');
-    setCurrentScreen('ec-dashboard');
-    return { ok: true };
-  }
+if (otpFlow === 'login') {
+  try {
+    await resetLoginGuard(email);
+  } catch {}
+  setUserMode('emergency-contact');
+  setCurrentScreen('ec-dashboard');
+  return { ok: true };
+}
+
 
   if (otpFlow === 'forgot') {
     setCurrentScreen('new-password');
@@ -547,19 +673,51 @@ const handleGoBack = () => {
     setSelectedDriverId(driverId);
     setCurrentScreen('ec-driver-detail');
   };
-
-  const handleLogout = async () => {
+const handleLogout = async () => {
+  try {
+    // 1) Sign out locally (no network needed). This clears in-memory session.
     try {
+      await supabase.auth.signOut({ scope: 'local' });
+    } catch {
+      // fallback for older client versions
       await supabase.auth.signOut();
-      await AsyncStorage.removeItem('bt_coachmark_seen_this_login');
-    } catch {}
-    setLocationPermissionGranted(false);
-    setOtpFlow(null);
-    setEmail('');
-    setSignupData(null);
-    setUserMode(null);
-    setCurrentScreen('login');
-  };
+    }
+
+    // 2) Wipe persisted auth tokens from AsyncStorage (custom + legacy keys)
+    const keys = await AsyncStorage.getAllKeys();
+
+    const toRemove = keys.filter((k) => {
+      if (!k) return false;
+
+      // our explicit key (and any variants)
+      if (k === SUPABASE_STORAGE_KEY) return true;
+      if (k.startsWith(SUPABASE_STORAGE_KEY)) return true;
+
+      // legacy Supabase RN keys often look like: sb-<project-ref>-auth-token
+      if (k.startsWith('sb-') && k.includes('auth-token')) return true;
+
+      return false;
+    });
+
+    if (toRemove.length > 0) {
+      await AsyncStorage.multiRemove(toRemove);
+    }
+
+    // keep your existing app-specific cache clear
+    await AsyncStorage.removeItem('bt_coachmark_seen_this_login');
+  } catch (e) {
+    console.log('[handleLogout] error:', e);
+  }
+
+  // reset local UI state no matter what
+  setLocationPermissionGranted(false);
+  setOtpFlow(null);
+  setEmail('');
+  setSignupData(null);
+  setUserMode(null);
+  setCurrentScreen('login');
+};
+
 
    return (
     <View style={[styles.container, { backgroundColor: theme.background }]}>

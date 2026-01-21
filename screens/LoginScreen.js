@@ -169,7 +169,7 @@ export default function LoginScreen({ onLogin, onForgotPassword, onSignup }) {
       <View style={styles.spacer} />
 
       <Text style={[styles.title, {color: theme.textPrimary }]}>Log in to DRIVE</Text>
-      <Text style={[styles.description, {color: theme.textPrimary}]}>Welcome back! Please enter your details.</Text>
+      <Text style={[styles.description, {color: theme.textPrimary}]}>Welcome to D.R.I.V.E! Please enter your details.</Text>
 
       {/* EMAIL */}
       <View style={styles.field}>
