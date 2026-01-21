@@ -54,6 +54,127 @@ function AppContent() {
   const [currentScreen, setCurrentScreen] = useState('splash');
   const [navParams, setNavParams] = useState(null);
   const [screenStack, setScreenStack] = useState([]);
+  // ✅ Persisted home routing (prevents ghost entries)
+const LAST_MODE_KEY = 'last_mode_v1';
+const [splashDone, setSplashDone] = useState(false);
+const initialRouteDoneRef = useRef(false);
+
+// persist last selected mode (so reopen stays in same mode)
+useEffect(() => {
+  if (userMode === 'driver' || userMode === 'emergency-contact') {
+    AsyncStorage.setItem(LAST_MODE_KEY, userMode).catch(() => {});
+  }
+}, [userMode]);
+
+// ✅ Decide first screen ONLY when splash finished + auth + onboarding are booted
+useEffect(() => {
+  if (!splashDone) return;
+  if (!authBooted) return;
+  if (!onboardingBooted) return;
+  if (initialRouteDoneRef.current) return;
+
+  initialRouteDoneRef.current = true;
+
+  (async () => {
+    // 1) On first install, still show welcome/onboarding flow
+    if (!onboardingSeen) {
+      setCurrentScreen('welcome');
+      return;
+    }
+
+    // 2) If no session, go login
+    const hasSession = !!activeSession?.user;
+    if (!hasSession) {
+      setCurrentScreen('login');
+      return;
+    }
+
+    // 3) Session exists → go back to last mode (default: emergency-contact)
+    let lastMode = 'emergency-contact';
+    try {
+      const v = await AsyncStorage.getItem(LAST_MODE_KEY);
+      if (v === 'driver' || v === 'emergency-contact') lastMode = v;
+    } catch {}
+
+    if (lastMode === 'driver') {
+      // driver mode requires location permission
+      const granted = await requestLocationPermission();
+      if (granted) {
+        setUserMode('driver');
+        setCurrentScreen('dashboard');
+        return;
+      }
+      // fallback if permission denied
+      setUserMode('emergency-contact');
+      setCurrentScreen('ec-dashboard');
+      return;
+    }
+
+    // emergency contact default
+    setUserMode('emergency-contact');
+    setCurrentScreen('ec-dashboard');
+  })();
+}, [splashDone, authBooted, onboardingBooted, onboardingSeen, activeSession]);
+
+  // ✅ Onboarding should show only once
+const ONBOARDING_SEEN_KEY = 'onboarding_seen_v1';
+const [onboardingSeen, setOnboardingSeen] = useState(false);
+const [onboardingBooted, setOnboardingBooted] = useState(false);
+
+useEffect(() => {
+  let mounted = true;
+
+  (async () => {
+    try {
+      const v = await AsyncStorage.getItem(ONBOARDING_SEEN_KEY);
+      if (!mounted) return;
+      setOnboardingSeen(v === '1');
+    } catch {
+      // ignore
+    } finally {
+      if (mounted) setOnboardingBooted(true);
+    }
+  })();
+
+  return () => {
+    mounted = false;
+  };
+}, []);
+
+const markOnboardingSeen = async () => {
+  try {
+    await AsyncStorage.setItem(ONBOARDING_SEEN_KEY, '1');
+  } catch {
+    // ignore
+  }
+  setOnboardingSeen(true);
+};
+
+// ✅ if already seen but somehow reached onboarding, auto-skip
+useEffect(() => {
+  if (onboardingBooted && onboardingSeen && currentScreen === 'onboarding') {
+    setCurrentScreen('login');
+  }
+}, [onboardingBooted, onboardingSeen, currentScreen]);
+
+  // ✅ keep latest values for applySession (avoid stale closure)
+const currentScreenRef = useRef('splash');
+const userModeRef = useRef('driver');
+
+useEffect(() => {
+  currentScreenRef.current = currentScreen;
+}, [currentScreen]);
+
+useEffect(() => {
+  userModeRef.current = userMode;
+}, [userMode]);
+
+    // ✅ keep a single source of truth for auth session
+  const [activeSession, setActiveSession] = useState(null);
+  const [authBooted, setAuthBooted] = useState(false);
+
+  const isEcScreen = (s) => typeof s === 'string' && s.startsWith('ec-');
+
   const otpInFlightRef = useRef(false);
   // ✅ PATCH 2: anti-enumeration + attempt limiter
 const loginFailCountRef = useRef(0);
@@ -146,7 +267,7 @@ const checkPhoneExists = async (phoneE164) => {
   // 'login' | 'signup' | 'forgot'
   const [otpFlow, setOtpFlow] = useState(null);
 
-  const [userMode, setUserMode] = useState('driver');
+  const [userMode, setUserMode] = useState(null);
   const [selectedDriverId, setSelectedDriverId] = useState(null);
 
   const [locationPermissionGranted, setLocationPermissionGranted] = useState(false);
@@ -335,17 +456,72 @@ if (error) {
 };
 
 
-  useEffect(() => {
+   useEffect(() => {
+    let mounted = true;
+
+    const applySession = (session) => {
+      if (!mounted) return;
+
+      setActiveSession(session ?? null);
+      setAuthBooted(true);
+
+     // ✅ if session disappears while inside EC screens, go back to login
+if (!session) {
+  const cs = currentScreenRef.current;
+  const um = userModeRef.current;
+
+  if (isEcScreen(cs) || um === 'emergency-contact') {
+    setUserMode(null);
+    setCurrentScreen('login');
+  }
+  return;
+}
+
+
+// ✅ Do NOT force login when session exists.
+// Boot-router handles initial navigation based on cached session.
+
+
+
+    };
+
+    // ✅ initial boot read
     (async () => {
       try {
-        const { data } = await supabase.auth.getSession();
-        if (data?.session) {
-          setUserMode('emergency-contact');
-          setCurrentScreen('ec-dashboard');
+        const { data, error } = await supabase.auth.getSession();
+        if (error) {
+          applySession(null);
+          return;
         }
-      } catch {}
+        applySession(data?.session ?? null);
+      } catch {
+        applySession(null);
+      }
     })();
+
+    // ✅ keep in sync with auth events
+    let sub = null;
+    try {
+      const res = supabase.auth.onAuthStateChange((_event, session) => {
+        applySession(session ?? null);
+      });
+
+      // supabase-js v2 shape
+      sub = res?.data?.subscription || res?.subscription || null;
+    } catch {
+      // ignore
+    }
+
+    return () => {
+      mounted = false;
+      try {
+        sub?.unsubscribe?.();
+      } catch {}
+    };
+    // IMPORTANT: do NOT add currentScreen/userMode to deps (avoid loops)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
 
   const requestLocationPermission = async () => {
     try {
@@ -540,12 +716,28 @@ const handleOTPConfirm = async (token) => {
   if (!res.ok) return res;
 
 if (otpFlow === 'login') {
+  // ✅ verify we actually have a session before switching screens
   try {
-    await resetLoginGuard(email);
-  } catch {}
-  setUserMode('emergency-contact');
-  setCurrentScreen('ec-dashboard');
-  return { ok: true };
+    const { data } = await supabase.auth.getSession();
+    if (!data?.session?.user) {
+      Alert.alert('Login error', 'Session was not created. Please try again.');
+      return { ok: false, message: 'No session created.' };
+    }
+
+    // keep app state synced too
+    setActiveSession(data.session);
+
+    try {
+      await resetLoginGuard(email);
+    } catch {}
+
+    setUserMode('emergency-contact');
+    setCurrentScreen('ec-dashboard');
+    return { ok: true };
+  } catch (e) {
+    Alert.alert('Login error', 'Please try again.');
+    return { ok: false, message: e?.message || 'Login failed.' };
+  }
 }
 
 
@@ -715,6 +907,9 @@ const handleLogout = async () => {
   setEmail('');
   setSignupData(null);
   setUserMode(null);
+  initialRouteDoneRef.current = false;
+setSplashDone(false);
+
   setCurrentScreen('login');
 };
 
@@ -753,10 +948,31 @@ const handleLogout = async () => {
         />
       )}
 
-      {currentScreen === 'splash' && <SplashScreen onComplete={() => setCurrentScreen('welcome')} />}
+      {currentScreen === 'splash' && (
+  <SplashScreen
+    onComplete={() => {
+      // ✅ let the boot-router decide where to go
+      setSplashDone(true);
+    }}
+  />
+)}
 
-      {currentScreen === 'welcome' && <WelcomeScreen onStart={() => setCurrentScreen('onboarding')} />}
-      {currentScreen === 'onboarding' && <OnboardingFlow onComplete={() => setCurrentScreen('login')} />}
+
+      {currentScreen === 'welcome' && (
+  <WelcomeScreen
+    onStart={() => setCurrentScreen(onboardingSeen ? 'login' : 'onboarding')}
+  />
+)}
+
+     {currentScreen === 'onboarding' && (
+  <OnboardingFlow
+    onComplete={async () => {
+      await markOnboardingSeen();
+      setCurrentScreen('login');
+    }}
+  />
+)}
+
 
       {/* AUTH */}
       {currentScreen === 'login' && (
@@ -890,7 +1106,7 @@ const handleLogout = async () => {
         />
       )}
 
-      {userMode === 'emergency-contact' && currentScreen === 'ec-dashboard' && (
+            {userMode === 'emergency-contact' && currentScreen === 'ec-dashboard' && activeSession?.user && (
         <EmergencyContactDashboard
           onNavigate={handleNavigate}
           onViewDriver={handleViewDriver}
@@ -898,13 +1114,17 @@ const handleLogout = async () => {
         />
       )}
 
-      {currentScreen === 'ec-notifications' && <EmergencyContactNotifications onNavigate={handleNavigate} />}
 
-      {currentScreen === 'ec-settings' && (
+            {currentScreen === 'ec-notifications' && activeSession?.user && (
+        <EmergencyContactNotifications onNavigate={handleNavigate} />
+      )}
+
+
+            {currentScreen === 'ec-settings' && activeSession?.user && (
         <EmergencyContactSettings onNavigate={handleNavigate} onSwitchToDriver={handleSwitchToDriver} />
       )}
 
-      {currentScreen === 'ec-driver-detail' && (
+          {currentScreen === 'ec-driver-detail' && activeSession?.user && (
         <DriverDetailView driverId={selectedDriverId} onBack={() => setCurrentScreen('ec-dashboard')} />
       )}
 

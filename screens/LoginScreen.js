@@ -290,10 +290,12 @@ export default function LoginScreen({ onLogin, onForgotPassword, onSignup }) {
         {loading ? (
           <View style={styles.loadingRow}>
             <ActivityIndicator size="small" color="#fff" />
-            <Text style={styles.loginText}>Verifying...</Text>
+            <Text style={[styles.loginText, { color: theme.textPrimary }]}>Verifying...</Text>
+
           </View>
         ) : (
-          <Text style={[styles.loginText, {color: theme.textPrimary }]}>Log in</Text>
+          <Text style={[styles.loginText, { color: theme.textPrimary }]}>Log in</Text>
+
         )}
       </Pressable>
 
@@ -351,7 +353,7 @@ const styles = StyleSheet.create({
   },
   loginButtonDisabled: { opacity: 0.7 },
   loadingRow: { flexDirection: 'row', alignItems: 'center', gap: 10 },
-  loginText: { color: '#fff', fontSize: 16, fontWeight: '600' },
+  loginText: { fontSize: 16, fontWeight: '600' },
 
   forgot: { marginTop: 16, color: '#2563EB', fontSize: 14, textAlign: 'center' },
 

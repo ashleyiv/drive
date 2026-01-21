@@ -4,11 +4,14 @@
     "slug": "DriveApp",
     "version": "1.0.0",
     "orientation": "portrait",
-    "icon": "./assets/icon.png",
+   "icon": "./assets/drivelogo_square_552.png",
+
+
     "userInterfaceStyle": "light",
     "newArchEnabled": true,
     "splash": {
-      "image": "./assets/splash-icon.png",
+     "image": "./assets/drivelogo.png",
+
       "resizeMode": "contain",
       "backgroundColor": "#ffffff"
     },
@@ -17,7 +20,10 @@
     },
     "android": {
       "adaptiveIcon": {
-        "foregroundImage": "./assets/adaptive-icon.png",
+        "foregroundImage": "./assets/drivelogo_square_552.png",
+
+
+
         "backgroundColor": "#ffffff"
       },
       "edgeToEdgeEnabled": true,

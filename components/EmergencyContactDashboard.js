@@ -161,6 +161,16 @@ function warningPalette(level) {
   // safe / no warning (neutral/green-ish)
   return { text: '#16A34A', bg: '#DCFCE7', border: '#86EFAC' };
 }
+function toFiniteNumberOrNull(v) {
+  const n =
+    typeof v === 'number'
+      ? v
+      : v != null && v !== ''
+      ? Number(v)
+      : NaN;
+
+  return Number.isFinite(n) ? n : null;
+}
 
 
 function isFreshLocation(iso) {
@@ -464,11 +474,12 @@ const startLiveDriver = (driverId) => {
           const row = payload?.new;
           if (!row?.user_id) return;
 
-          const lat = row.last_lat;
-          const lng = row.last_lng;
-          if (lat == null || lng == null) return;
+          const lat = toFiniteNumberOrNull(row.last_lat);
+const lng = toFiniteNumberOrNull(row.last_lng);
+if (lat == null || lng == null) return;
 
-          const coords = { latitude: lat, longitude: lng };
+const coords = { latitude: lat, longitude: lng };
+
 
           // ✅ Update ONLY that driver in state (minimal)
           setDrivers((prev) =>
@@ -658,11 +669,13 @@ DeviceSession.set({
 
       try {
         const { data: sess } = await supabase.auth.getSession();
-        if (!sess?.session) return;
+const session = sess?.session;
+if (!session?.user?.id) return;
 
-        const { data: userRes } = await supabase.auth.getUser();
-        const user = userRes?.user;
-        const meta = user?.user_metadata || {};
+// ✅ avoid AuthSessionMissingError
+const user = session.user;
+const meta = user?.user_metadata || {};
+
 
         const lastId = meta?.lastPairedDeviceId;
         const lastName = meta?.lastPairedDeviceName;
@@ -727,14 +740,18 @@ if (s?.connectedDevice?.id === lastId && s?.scanState === 'connected') {
     try {
       setLoadingDrivers(true);
 
-      const { data: userRes, error: userErr } = await supabase.auth.getUser();
-      if (userErr) throw userErr;
+      // ✅ Session guard: prevents AuthSessionMissingError + prevents "ghost dashboard"
+const { data: sess } = await supabase.auth.getSession();
+const session = sess?.session;
 
-      const me = userRes?.user;
-      if (!me?.id) {
-        setDrivers(mockDrivers);
-        return;
-      }
+if (!session?.user?.id) {
+  // not logged in -> show empty (not mock)
+  setDrivers([]);
+  return;
+}
+
+const me = session.user;
+
 
       const { data: links, error: linkErr } = await supabase
         .from('emergency_contact_requests')
@@ -811,9 +828,9 @@ if (row?.level && isFreshWarning(row.created_at)) {
 
         const name = displayNameFromProfile(prof);
 
-        const lat = st?.last_lat ?? null;
-        const lng = st?.last_lng ?? null;
-        const coords = lat != null && lng != null ? { latitude: lat, longitude: lng } : null;
+       const lat = toFiniteNumberOrNull(st?.last_lat);
+const lng = toFiniteNumberOrNull(st?.last_lng);
+const coords = lat != null && lng != null ? { latitude: lat, longitude: lng } : null;
 
         const mode = st?.mode || 'contact';
 
@@ -891,7 +908,16 @@ const live = mode === 'driver' && isFreshLocation(st?.last_location_at);
       }
     } catch (e) {
       console.log('[EmergencyContactDashboard] loadConnectedDrivers error:', e);
-      setDrivers(mockDrivers);
+
+// ✅ If auth is missing/invalid, do NOT show mock (prevents fake login)
+const msg = String(e?.message || '').toLowerCase();
+if (msg.includes('auth session missing') || msg.includes('invalid jwt') || msg.includes('jwt')) {
+  setDrivers([]);
+  return;
+}
+
+setDrivers(mockDrivers);
+
     } finally {
       setLoadingDrivers(false);
     }
@@ -916,9 +942,10 @@ useEffect(() => {
 
   const sub = async () => {
     try {
-      const { data: userRes } = await supabase.auth.getUser();
-      const me = userRes?.user;
-      if (!me?.id) return;
+      const { data: sess } = await supabase.auth.getSession();
+const me = sess?.session?.user;
+if (!me?.id) return;
+
 
       channel = supabase
         .channel('ec-driver-status')

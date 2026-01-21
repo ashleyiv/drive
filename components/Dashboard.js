@@ -151,6 +151,18 @@ useEffect(() => {
   const [batteryPercent, setBatteryPercent] = useState(null);
   const batteryTimerRef = useRef(null);
 const locationSubRef = useRef(null);
+// ✅ NEW: stop stream safely (prevents sync-throw crash + double-stop)
+const stopStreamSafely = async (opts = { setMode: false }) => {
+  const sub = locationSubRef.current;
+  locationSubRef.current = null; // prevent double-stop from multiple effects
+
+  try {
+    await stopDriverLocationStream(sub, opts);
+  } catch (e) {
+    console.log('[Dashboard] stopDriverLocationStream safe failed:', e);
+  }
+};
+
 // ✅ NEW: track how long we've been connected to IoT (demo bluetooth)
 const [connectedAt, setConnectedAt] = useState(null); // number (ms since epoch)
 
@@ -656,11 +668,7 @@ useEffect(() => {
 // ✅ ADD ONLY: safety net - stop stream when disconnected (any path)
 useEffect(() => {
   if (!(scanState === 'connected' && connectedDevice)) {
-    Promise.resolve(stopDriverLocationStream(locationSubRef.current, { setMode: false }))
-      .catch((e) => console.log('[Dashboard] stopDriverLocationStream (auto) failed:', e))
-      .finally(() => {
-        locationSubRef.current = null;
-      });
+    stopStreamSafely({ setMode: true });
   }
 }, [scanState, connectedDevice]);
 
@@ -714,11 +722,9 @@ setConnectedAt(null);
 setConnectedDurationLabel('');
 DeviceSession.set?.({ connectedAt: null });
 
-  Promise.resolve(stopDriverLocationStream(locationSubRef.current, { setMode: true }))
-    .catch((e) => console.log('[Dashboard] stopDriverLocationStream (disconnect) failed:', e))
-    .finally(() => {
-      locationSubRef.current = null;
-    });
+  // ✅ stop safely (prevents sync-throw crash)
+stopStreamSafely({ setMode: true });
+
 
   DeviceSession.clearConnection();
 };
@@ -757,11 +763,8 @@ const handleReconnectNo = () => {
 
 useEffect(() => {
   return () => {
-    Promise.resolve(stopDriverLocationStream(locationSubRef.current, { setMode: false }))
-      .catch((e) => console.log('[Dashboard] stopDriverLocationStream (unmount) failed:', e))
-      .finally(() => {
-        locationSubRef.current = null;
-      });
+    stopStreamSafely({ setMode: false });
+
   };
 }, []);
 

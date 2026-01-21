@@ -62,21 +62,22 @@ const { count: pendingInviteCount } = usePendingInviteCount();
       try {
         setProfileLoading(true);
 
-        const { data: userRes, error: userErr } = await supabase.auth.getUser();
-        if (userErr) throw userErr;
+       // ✅ Session guard: avoids AuthSessionMissingError
+const { data: sess } = await supabase.auth.getSession();
+const user = sess?.session?.user || null;
 
-        const user = userRes?.user;
-        const authEmail = String(user?.email || '—').trim().toLowerCase();
+const authEmail = String(user?.email || '—').trim().toLowerCase();
 
-        if (!user?.id) {
-          if (isMounted) {
-            setProfileName('Emergency Contact');
-            setProfilePhone('—');
-            setProfileEmail(authEmail);
-            setProfileAvatarUrl(null);
-          }
-          return;
-        }
+if (!user?.id) {
+  if (isMounted) {
+    setProfileName('Emergency Contact');
+    setProfilePhone('—');
+    setProfileEmail('—');
+    setProfileAvatarUrl(null);
+  }
+  return;
+}
+
 
         const { data: profile, error: profileErr } = await supabase
           .from('user_profiles')
@@ -362,10 +363,18 @@ const { count: pendingInviteCount } = usePendingInviteCount();
                 <Text style={styles.cancelText}>Cancel</Text>
               </Pressable>
               <Pressable
-                onPress={() => {
-                  setShowLogoutConfirm(false);
-                  onNavigate('login', {});
-                }}
+               onPress={async () => {
+  setShowLogoutConfirm(false);
+
+  try {
+    await supabase.auth.signOut(); // ✅ clears Supabase session
+  } catch (e) {
+    console.log('[EmergencyContactSettings] signOut error:', e);
+  }
+
+  onNavigate('login', {});
+}}
+
               >
                 <Text style={[styles.confirmText, { color: theme.danger }]}>Log Out</Text>
               </Pressable>
