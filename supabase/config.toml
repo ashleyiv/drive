@@ -1,8 +1,0 @@
-[functions.send_phone_otp]
-verify_jwt = false
-
-[functions.verify_phone_otp]
-verify_jwt = false
-
-[functions.check_semaphore_message]
-verify_jwt = false

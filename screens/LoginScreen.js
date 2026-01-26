@@ -75,10 +75,7 @@ export default function LoginScreen({ onLogin, onForgotPassword, onSignup }) {
     // no double dots after @ (e.g. gmail..com)
     if (domain.includes('..')) return 'Please ensure to input proper email address';
 
-    // allowed providers ONLY
-    if (domain !== 'gmail.com' && domain !== 'yahoo.com') {
-      return 'Only @gmail.com or @yahoo.com is allowed';
-    }
+  
 
     // local part basic safety (dots allowed before @)
     // (prevents weird symbols/spam patterns)

@@ -40,6 +40,7 @@ import TermsOfService from './components/TermsOfService';
 /* THEME */
 import { ThemeProvider } from './theme/ThemeContext';
 import useTheme from './theme/useTheme';
+import { DeviceSession } from './lib/deviceSession';
 
 export default function App() {
   return (
@@ -51,6 +52,20 @@ export default function App() {
 
 function AppContent() {
   const { theme } = useTheme();
+    // ✅ IMPORTANT: DeviceSession.set might overwrite (not merge)
+  // This helper merges with existing values so we don't lose connectedDevice.
+  const safeDeviceSessionSet = (patch) => {
+    try {
+      const prev = DeviceSession.get?.() || {};
+      DeviceSession.set?.({ ...prev, ...patch });
+    } catch (e) {
+      try {
+        // fallback if get() not available
+        DeviceSession.set?.(patch);
+      } catch {}
+    }
+  };
+
   const [currentScreen, setCurrentScreen] = useState('splash');
   const [navParams, setNavParams] = useState(null);
   const [screenStack, setScreenStack] = useState([]);
@@ -100,10 +115,16 @@ useEffect(() => {
       // driver mode requires location permission
       const granted = await requestLocationPermission();
       if (granted) {
-        setUserMode('driver');
-        setCurrentScreen('dashboard');
+        // ✅ show loading screen consistently on startup restore
+        setModeSwitchConfig({
+          action: 'to-driver',
+          title: 'DRIVER MODE',
+          subtitle: 'Switching to Driver dashboard…',
+        });
+        setCurrentScreen('mode-switch');
         return;
       }
+
       // fallback if permission denied
       setUserMode('emergency-contact');
       setCurrentScreen('ec-dashboard');
@@ -272,70 +293,8 @@ const checkPhoneExists = async (phoneE164) => {
 
   const [locationPermissionGranted, setLocationPermissionGranted] = useState(false);
   const [currentLocation, setCurrentLocation] = useState(null);
-  // ✅ PHONE OTP (new)
-  const [phoneOtpRequestId, setPhoneOtpRequestId] = useState(null);
-  const [phoneOtpSentAt, setPhoneOtpSentAt] = useState(null);
-  const [phoneVerifiedId, setPhoneVerifiedId] = useState(null); // verificationId
-  const [phoneForSignup, setPhoneForSignup] = useState(null);   // +63...
 
 
-    const sendPhoneOtp = async ({ phoneE164 }) => {
-    try {
-      const { data, error } = await supabase.functions.invoke('send_phone_otp', {
-        body: { phone: phoneE164 },
-      });
-
-      if (error) return { ok: false, message: error.message };
-      if (!data?.ok) return { ok: false, message: data?.message || 'Failed to send SMS' };
-
-      setPhoneOtpRequestId(data.requestId);
-      setPhoneForSignup(data.phone);
-      setPhoneOtpSentAt(Date.now());
-      return { ok: true };
-    } catch (e) {
-      return { ok: false, message: e?.message || 'Failed to send SMS' };
-    }
-  };
-
-  const verifyPhoneOtp = async ({ requestId, token }) => {
-    try {
-    const { data, error } = await supabase.functions.invoke('verify_phone_otp', {
-  body: { requestId, code: token }, // server now supports this
-});
-
-if (error) return { ok: false, message: error.message };
-if (!data?.ok) return { ok: false, message: data?.message || 'Invalid code' };
-
-// ✅ always set from returned verificationId
-setPhoneVerifiedId(data.verificationId);
-return { ok: true };
-
-    } catch (e) {
-      return { ok: false, message: e?.message || 'Invalid code' };
-    }
-  };
-  const handleVerifyPhoneStart = async (draft) => {
-    // store draft now (so we can continue after phone OTP)
-    setSignupData({
-      email: draft.email,
-      firstName: draft.firstName,
-      lastName: draft.lastName,
-      phone: draft.phone,
-      password: draft.password,
-    });
-
-    // clear any previous verification
-    setPhoneVerifiedId(null);
-
-    const res = await sendPhoneOtp({ phoneE164: draft.phone });
-    if (!res.ok) {
-      Alert.alert('Failed to send SMS', res.message);
-      return res;
-    }
-
-    setCurrentScreen('phone-otp');
-    return { ok: true };
-  };
 
   const normalizeEmail = (input) => String(input ?? '').trim().toLowerCase();
 
@@ -647,7 +606,7 @@ const handleSignup = async (data) => {
     return { ok: false, field: 'phone', message: 'This phone number is already existing. please choose another one.' };
   }
 
-  // ✅ store draft for OTP flow
+   // ✅ store draft for OTP flow (still needed for password set after OTP)
   setSignupData({
     email: data.email,
     firstName: data.firstName,
@@ -656,20 +615,24 @@ const handleSignup = async (data) => {
     password: data.password,
   });
 
-  // ✅ clear old phone verification state
-  setPhoneVerifiedId(null);
-  setPhoneOtpRequestId(null);
-  setPhoneForSignup(null);
+  // ✅ send EMAIL OTP (no phone/SMS step)
+  const emailOtpRes = await onSignupSendOtp({
+    email: data.email,
+    firstName: data.firstName,
+    lastName: data.lastName,
+    phone: data.phone,
+  });
 
-  // ✅ send PHONE OTP now
-  const sms = await sendPhoneOtp({ phoneE164: data.phone });
-  if (!sms.ok) {
-    // if Edge Function returned field, forward it
-    return { ok: false, field: sms.field || 'phone', message: sms.message || 'Failed to send SMS.' };
+  if (!emailOtpRes.ok) {
+    return { ok: false, field: 'email', message: emailOtpRes.message || 'Failed to send code.' };
   }
 
-  setCurrentScreen('phone-otp');
+  setOtpFlow('signup');
+  setEmail(String(data.email || '').trim().toLowerCase());
+  setOtpSentAt(emailOtpRes.sentAt || Date.now());
+  setCurrentScreen('signup-otp');
   return { ok: true };
+
 };
 
 
@@ -936,12 +899,19 @@ setSplashDone(false);
                 return;
               }
 
+              // ✅ let Dashboard show its "DRIVER MODE" overlay once
+              try { safeDeviceSessionSet({ pendingModeSwitchTo: 'driver' }); } catch {}
+
+
               setUserMode('driver');
               setCurrentScreen('dashboard');
               return;
             }
 
             // default: go to Emergency Contact
+            try { safeDeviceSessionSet({ pendingModeSwitchTo: 'contact' }); } catch {}
+
+
             setUserMode('emergency-contact');
             setCurrentScreen('ec-dashboard');
           }}
@@ -995,40 +965,7 @@ setSplashDone(false);
           onBack={() => setCurrentScreen('login')}
         />
       )}
-      {currentScreen === 'phone-otp' && (
-  <OTPConfirmation
-    email={phoneForSignup || 'your phone'}
-    sentAt={phoneOtpSentAt}
-    expirySeconds={300}
-    resendCooldownSeconds={300}
-    maxAttempts={5}
-    onConfirm={async (token) => {
-      const res = await verifyPhoneOtp({ requestId: phoneOtpRequestId, token });
-      if (!res.ok) return res;
-
-      const emailRes = await onSignupSendOtp({
-        email: signupData?.email,
-        firstName: signupData?.firstName,
-        lastName: signupData?.lastName,
-        phone: signupData?.phone,
-      });
-
-      if (!emailRes.ok) return emailRes;
-
-      setOtpFlow('signup');
-      setEmail(String(signupData?.email || '').trim().toLowerCase());
-      setOtpSentAt(emailRes.sentAt || Date.now());
-      setCurrentScreen('signup-otp');
-      return { ok: true };
-    }}
-    onResend={async () => {
-      return await sendPhoneOtp({ phoneE164: signupData?.phone });
-    }}
-    onBack={() => setCurrentScreen('signup')}
-    onAttemptsExhausted={() => setCurrentScreen('login')}
-
-  />
-)}
+    
 
 
 {currentScreen === 'signup' && (

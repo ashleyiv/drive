@@ -1,8 +1,11 @@
 // driveash/components/BottomNav.js
-import React, { useEffect, useMemo, useRef } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { View, Text, TouchableOpacity, StyleSheet, Animated, Easing } from 'react-native';
 import { Feather, FontAwesome5 } from '@expo/vector-icons';
 import useTheme from '../theme/useTheme';
+import { supabase } from '../lib/supabase';
+import { usePendingInviteCount } from '../lib/usePendingInviteCount';
+
 
 function clampBadgeText(n) {
   if (!n || n <= 0) return null;
@@ -23,11 +26,97 @@ export default function BottomNav({
   variant = 'driver',
   activeKey,
   onNavigate,
-  notificationCount = 0,
+  notificationCount, // optional override
   theme,
   tabs,
 }) {
-  const badgeText = clampBadgeText(notificationCount);
+  const hasOverride = typeof notificationCount === 'number';
+
+  // ✅ For emergency: compute badge globally here (works on ALL pages)
+  const { count: pendingInviteCount } = usePendingInviteCount({
+    enabled: variant === 'emergency' && !hasOverride,
+    direction: 'incoming',
+  });
+
+  const [unreadWarningsCount, setUnreadWarningsCount] = useState(0);
+  const mountedRef = useRef(true);
+
+  const loadUnreadWarningsCount = async () => {
+    try {
+      const { data: userRes } = await supabase.auth.getUser();
+      const me = userRes?.user;
+      if (!me?.id) {
+        if (mountedRef.current) setUnreadWarningsCount(0);
+        return;
+      }
+
+      const { count, error } = await supabase
+        .from('notifications')
+        .select('id', { count: 'exact', head: true })
+        .eq('recipient_id', me.id)
+        .eq('type', 'warning')
+        .eq('source_table', 'driver_warnings')
+        .is('read_at', null);
+
+      if (error) throw error;
+      if (mountedRef.current) setUnreadWarningsCount(count || 0);
+    } catch (e) {
+      if (mountedRef.current) setUnreadWarningsCount(0);
+    }
+  };
+
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => {
+      mountedRef.current = false;
+    };
+  }, []);
+
+  useEffect(() => {
+    // Only auto-badge for emergency variant, unless overridden by prop
+    if (variant !== 'emergency' || hasOverride) return;
+
+    let channel;
+
+    (async () => {
+      await loadUnreadWarningsCount();
+
+      const { data: userRes } = await supabase.auth.getUser();
+      const me = userRes?.user;
+      if (!me?.id) return;
+
+      channel = supabase
+        .channel(`notif-badge-global-${me.id}`)
+        .on(
+          'postgres_changes',
+          {
+            event: '*',
+            schema: 'public',
+            table: 'notifications',
+            filter: `recipient_id=eq.${me.id}`,
+          },
+          () => {
+            loadUnreadWarningsCount();
+          }
+        )
+        .subscribe();
+    })();
+
+    return () => {
+      if (channel) supabase.removeChannel(channel);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [variant, hasOverride]);
+
+  const computedCount =
+    variant === 'emergency'
+      ? (pendingInviteCount || 0) + (unreadWarningsCount || 0)
+      : 0;
+
+  const effectiveCount = hasOverride ? notificationCount : computedCount;
+
+  const badgeText = clampBadgeText(effectiveCount);
+
 
   // Animation (bounce) when notificationCount increases
   const prevCountRef = useRef(notificationCount);
@@ -35,9 +124,11 @@ export default function BottomNav({
 
   useEffect(() => {
     const prev = prevCountRef.current ?? 0;
-    const next = notificationCount ?? 0;
+    const next = effectiveCount ?? 0;
 
-    if (next > prev) {
+    if (next > prev && activeKey !== 'notifications') {
+
+
       notifScale.setValue(1);
       Animated.sequence([
         Animated.timing(notifScale, {
@@ -55,8 +146,9 @@ export default function BottomNav({
       ]).start();
     }
 
-    prevCountRef.current = next;
-  }, [notificationCount, notifScale]);
+       prevCountRef.current = next;
+  }, [effectiveCount, activeKey, notifScale]);
+
 
   const defaultTabs = useMemo(() => {
     if (variant === 'emergency') {

@@ -270,12 +270,13 @@ if (!user?.id) {
             {/* Connected drivers + dark mode */}
             <View style={[styles.card, { backgroundColor: theme.card }]}>
               <Pressable style={styles.listItem} onPress={() => onNavigate('connected-accounts')}>
-                <View style={styles.row}>
-                  <Feather name="users" size={20} color={theme.iconPrimary} />
-                  <Text style={[styles.itemTitle, { color: theme.textPrimary }]}>Connected drivers</Text>
-                </View>
-                <Feather name="chevron-right" size={20} color={theme.navInactive} />
-              </Pressable>
+  <View style={styles.row}>
+    <Feather name="users" size={20} color={theme.iconPrimary} />
+    <Text style={[styles.itemTitle, { color: theme.textPrimary }]}>Connected Drivers</Text>
+  </View>
+  <Feather name="chevron-right" size={20} color={theme.navInactive} />
+</Pressable>
+
 
               <View style={[styles.divider, { backgroundColor: theme.border }]} />
 
@@ -407,7 +408,7 @@ if (!user?.id) {
   variant="emergency"
   activeKey="settings"
   onNavigate={onNavigate}
-  notificationCount={pendingInviteCount}
+ 
   theme={theme}
 />
 

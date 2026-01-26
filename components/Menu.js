@@ -1,5 +1,5 @@
 // driveash/components/Menu.js
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState, useCallback } from 'react';
 import {
   View,
   Text,
@@ -10,7 +10,9 @@ import {
   Modal,
   Pressable,
   Image,
+  DeviceEventEmitter,
 } from 'react-native';
+
 import { Ionicons, Feather, AntDesign } from '@expo/vector-icons';
 
 import AccountSettings from './AccountSettings';
@@ -37,6 +39,14 @@ export default function Menu({
   userPhone = '—',
   userEmail = '—',
 }) {
+const PROFILE_UPDATED_EVENT = 'profileUpdated';
+const [profileAvatarBust, setProfileAvatarBust] = useState(Date.now());
+
+const withCacheBust = (url, bust) => {
+  if (!url) return null;
+  const hasQ = String(url).includes('?');
+  return `${url}${hasQ ? '&' : '?'}t=${bust}`;
+};
 
   // Mode state (kept, but UI disabled)
   const [isEmergencyContactMode, setIsEmergencyContactMode] = useState(false);
@@ -59,86 +69,104 @@ export default function Menu({
   // ✅ Avatar
   const [profileAvatar, setProfileAvatar] = useState(null);
 
-  useEffect(() => {
-    let isMounted = true;
+  const loadProfile = useCallback(async () => {
+  let isMounted = true;
 
-    const loadProfile = async () => {
-      try {
-        setProfileLoading(true);
+  try {
+    setProfileLoading(true);
 
-        const { data: userRes, error: userErr } = await supabase.auth.getUser();
-        if (userErr) throw userErr;
+    const { data: userRes, error: userErr } = await supabase.auth.getUser();
+    if (userErr) throw userErr;
 
-        const user = userRes?.user;
+    const user = userRes?.user;
 
-        // Fallback: use auth email even if profile row is missing
-        const authEmail = String(user?.email || userEmail || '—').trim().toLowerCase();
+    const authEmail = String(user?.email || userEmail || '—').trim().toLowerCase();
 
-        if (!user?.id) {
-          if (isMounted) {
-            setProfileAvatar(null);
-            setProfileName(userName);
-            setProfilePhone(formatPHPretty(userPhone) || userPhone);
-            setProfileEmail(authEmail);
-          }
-          return;
-        }
+    if (!user?.id) {
+      setProfileAvatar(null);
+      setProfileName(userName);
+      setProfilePhone(formatPHPretty(userPhone) || userPhone);
+      setProfileEmail(authEmail);
+      return;
+    }
 
-        // ✅ fetch avatar only when user.id exists
-        clearAvatarCache(user.id); // ensures latest avatar if updated
-        const avatar = await getUserAvatarUrl(user.id);
-        if (isMounted) setProfileAvatar(avatar);
+    // force latest avatar
+    clearAvatarCache(user.id);
+    const avatar = await getUserAvatarUrl(user.id);
+    setProfileAvatar(avatar || null);
+    setProfileAvatarBust(Date.now());
 
-        const { data: profile, error: profileErr } = await supabase
-          .from('user_profiles')
-          .select('first_name,last_name,phone,email')
-          .eq('id', user.id)
-          .maybeSingle();
+    const { data: profile, error: profileErr } = await supabase
+      .from('user_profiles')
+      .select('first_name,last_name,phone,email')
+      .eq('id', user.id)
+      .maybeSingle();
 
-        if (profileErr) {
-          console.log('[Menu] profile fetch error:', profileErr);
-          if (isMounted) {
-            setProfileName(userName);
-            setProfilePhone(formatPHPretty(userPhone) || userPhone);
-            setProfileEmail(authEmail);
-          }
-          return;
-        }
+    if (profileErr) {
+      console.log('[Menu] profile fetch error:', profileErr);
+      setProfileName(userName);
+      setProfilePhone(formatPHPretty(userPhone) || userPhone);
+      setProfileEmail(authEmail);
+      return;
+    }
 
-        const first = String(profile?.first_name ?? '').trim();
-        const last = String(profile?.last_name ?? '').trim();
-        const fullName =
-          (first || last) ? `${first}${first && last ? ' ' : ''}${last}` : (userName || '—');
+    const first = String(profile?.first_name ?? '').trim();
+    const last = String(profile?.last_name ?? '').trim();
+    const fullName =
+      (first || last) ? `${first}${first && last ? ' ' : ''}${last}` : (userName || '—');
 
-        const prettyPhone =
-          formatPHPretty(profile?.phone) || formatPHPretty(userPhone) || (userPhone || '—');
+    const prettyPhone =
+      formatPHPretty(profile?.phone) || formatPHPretty(userPhone) || (userPhone || '—');
 
-        const emailFinal = String(profile?.email || authEmail || '—').trim().toLowerCase();
+    const emailFinal = String(profile?.email || authEmail || '—').trim().toLowerCase();
 
-        if (isMounted) {
-          setProfileName(fullName);
-          setProfilePhone(prettyPhone);
-          setProfileEmail(emailFinal);
-        }
-      } catch (e) {
-        console.log('[Menu] loadProfile unexpected error:', e);
-        if (isMounted) {
-          setProfileAvatar(null);
-          setProfileName(userName);
-          setProfilePhone(formatPHPretty(userPhone) || userPhone);
-          setProfileEmail(String(userEmail || '—').trim().toLowerCase());
-        }
-      } finally {
-        if (isMounted) setProfileLoading(false);
-      }
-    };
+    setProfileName(fullName);
+    setProfilePhone(prettyPhone);
+    setProfileEmail(emailFinal);
+  } catch (e) {
+    console.log('[Menu] loadProfile unexpected error:', e);
+    setProfileAvatar(null);
+    setProfileName(userName);
+    setProfilePhone(formatPHPretty(userPhone) || userPhone);
+    setProfileEmail(String(userEmail || '—').trim().toLowerCase());
+  } finally {
+    setProfileLoading(false);
+  }
+
+  return () => {
+    isMounted = false;
+  };
+}, [userName, userPhone, userEmail]);
+
+useEffect(() => {
+  let mounted = true;
+
+  (async () => {
+    if (!mounted) return;
+    await loadProfile();
+  })();
+
+  return () => {
+    mounted = false;
+  };
+}, [loadProfile]);
+
+
+
+useEffect(() => {
+  const sub = DeviceEventEmitter.addListener(PROFILE_UPDATED_EVENT, async (payload) => {
+    const { data: userRes } = await supabase.auth.getUser();
+    const me = userRes?.user;
+    if (!me?.id) return;
+
+    if (payload?.userId && String(payload.userId) !== String(me.id)) return;
 
     loadProfile();
+  });
 
-    return () => {
-      isMounted = false;
-    };
-  }, [userName, userPhone, userEmail]);
+  return () => sub.remove();
+}, [loadProfile]);
+
 
   // --- Mode switch handlers (kept; UI hidden) ---
   const handleEmergencyContactToggle = (value) => {
@@ -216,11 +244,15 @@ export default function Menu({
         onPress={() => setShowAccountSettings(true)}
       >
         <View style={[styles.avatar, { backgroundColor: theme.iconColor, overflow: 'hidden' }]}>
-          {profileAvatar ? (
-            <Image source={{ uri: profileAvatar }} style={{ width: 64, height: 64 }} />
-          ) : (
-            <Ionicons name="person" size={32} color="white" />
-          )}
+         {profileAvatar ? (
+  <Image
+    source={{ uri: withCacheBust(profileAvatar, profileAvatarBust) }}
+    style={{ width: 64, height: 64 }}
+  />
+) : (
+  <Ionicons name="person" size={32} color="white" />
+)}
+
         </View>
 
         <View style={{ flex: 1, marginLeft: 12 }}>

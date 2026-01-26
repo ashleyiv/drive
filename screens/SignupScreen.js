@@ -18,6 +18,7 @@ import { normalizePHToDigits10, normalizePHToE164 } from '../lib/phonePH';
 import { checkPasswordBlacklist } from '../lib/passwordBlacklist';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import useTheme from '../theme/useTheme';
+import TermsContent from '../components/TermsContent';
 
 const handleLoginSuccess = async () => {
   // Reset coach mark for this session
@@ -27,6 +28,17 @@ const handleLoginSuccess = async () => {
   navigation.replace('Dashboard');
 };
 
+function sanitizeNameInput(input) {
+  // Keep only letters and spaces (numbers can NEVER persist)
+  let v = String(input ?? '').replace(/[^A-Za-z ]+/g, '');
+
+  // Collapse multiple spaces and trim ends
+  v = v.replace(/ +/g, ' ').trim();
+
+  // Allow up to 4 words (3 spaces)
+  const parts = v.split(' ').filter(Boolean);
+  return parts.slice(0, 4).join(' ');
+}
 
 export default function SignupScreen({
   onSignup,
@@ -35,6 +47,7 @@ export default function SignupScreen({
   onCheckPhoneExists, // ✅ NEW
 }) {
 
+const [termsAtBottom, setTermsAtBottom] = useState(false);
 
   const { theme } = useTheme();
   const [email, setEmail] = useState('');
@@ -93,41 +106,46 @@ const [checkingRemote, setCheckingRemote] = useState({ email: false, phone: fals
   const emailError = useMemo(() => {
   const raw = String(email || '').trim();
 
+  // show only ONE message for invalid emails (as requested)
+  const bad = () => 'Please ensure to input proper email address';
+
   if (!raw) return 'Email is required.';
   if (raw.length > 45) return 'Email must not exceed 45 characters.';
 
   // must contain exactly one "@"
   const atCount = (raw.match(/@/g) || []).length;
-  if (atCount !== 1) return 'Email must contain exactly one @.';
+  if (atCount !== 1) return bad();
 
   const [local, domainRaw] = raw.split('@');
   const domain = String(domainRaw || '').trim().toLowerCase();
 
-  // allow dots before @, but local part must exist and not contain spaces
-  if (!local || /\s/.test(local)) return 'Please enter a valid email.';
-  if (/\s/.test(domain)) return 'Please enter a valid email.';
+  // basic must-haves
+  if (!local || !domain) return bad();
+  if (/\s/.test(local) || /\s/.test(domain)) return bad();
 
-  // IMPORTANT: only real providers allowed (as requested)
-  const allowedDomains = ['gmail.com', 'yahoo.com'];
-  if (!allowedDomains.includes(domain)) return 'Email must end with @gmail.com or @yahoo.com.';
+  // domain should look real-ish: has a dot, no consecutive dots
+  if (!domain.includes('.')) return bad();
+  if (domain.startsWith('.') || domain.endsWith('.')) return bad();
+  if (domain.includes('..')) return bad();
 
-  // prevents gmail..com etc (extra safety even though allowlist already blocks variants)
-  if (domain.includes('..')) return 'Email domain is invalid.';
+  // no weird chars in domain
+  if (!/^[a-z0-9.-]+$/.test(domain)) return bad();
 
-  // basic local-part format: allow dots, letters, numbers, underscores, hyphens
-  // (you said dots before @ are allowed)
-  const localOk = /^[A-Za-z0-9._-]+$/.test(local);
-  if (!localOk) return 'Email contains invalid characters.';
+  // local part: allow letters/numbers/dot/underscore/hyphen (same as your old intent)
+  if (!/^[A-Za-z0-9._-]+$/.test(local)) return bad();
 
   return '';
 }, [email]);
+
 
 
   const firstNameError = useMemo(() => {
     const v = String(firstName || '').trim();
     if (!v) return 'First name is required.';
 // letters only (no numbers / no special characters)
-if (!/^[A-Za-z]+$/.test(v)) return 'First name must contain letters only (no numbers/special characters).';
+// allow up to 3 single spaces, no double spaces, no leading/trailing spaces
+if (!/^[A-Za-z]+(?: [A-Za-z]+){0,3}$/.test(v))
+  return 'First name must contain letters only and single spaces (no double spaces).';
 
     // max 20 letters (count letters only)
     const letters = (v.match(/[A-Za-z]/g) || []).length;
@@ -140,7 +158,9 @@ if (!/^[A-Za-z]+$/.test(v)) return 'First name must contain letters only (no num
   const lastNameError = useMemo(() => {
     const v = String(lastName || '').trim();
     if (!v) return 'Last name is required.';
-    if (!/^[A-Za-z]+$/.test(v)) return 'Last name must contain letters only (no numbers/special characters).';
+    if (!/^[A-Za-z]+(?: [A-Za-z]+){0,3}$/.test(v))
+  return 'Last name must contain letters only and single spaces (no double spaces).';
+
 
     const letters = (v.match(/[A-Za-z]/g) || []).length;
     if (letters > 20) return 'Last name must not exceed 20 letters.';
@@ -415,7 +435,11 @@ if (remoteErrors.email || remoteErrors.phone) {
       <View style={[styles.container, {backgroundColor: theme.background }]}>
         <Pressable
           style={styles.backButton}
-          onPress={() => !loading && setShowTerms(false)}
+          onPress={() => {
+  if (loading) return;
+  setTermsAtBottom(false);
+  setShowTerms(false);
+}}
           disabled={loading}
         >
           <Ionicons name="chevron-back" size={24} color={theme.idleText}/>
@@ -423,54 +447,53 @@ if (remoteErrors.email || remoteErrors.phone) {
         </Pressable>
 
         <Text style={[styles.title, {color: theme.textPrimary }]}>Terms and Conditions</Text>
-        <ScrollView style={styles.termsContainer} keyboardShouldPersistTaps="handled">
-          <Text style={[styles.sectionTitle, {color: theme.textPrimary }]}>1. Acceptance of Terms</Text>
-          <Text style={[styles.paragraph, {color: theme.textSecondary }]}>
-            By using the DRIVE drowsiness detection application, you agree to be bound by these Terms and Conditions.
-          </Text>
+        <ScrollView
+  style={styles.termsContainer}
+  keyboardShouldPersistTaps="handled"
+  onScroll={({ nativeEvent }) => {
+    const { layoutMeasurement, contentOffset, contentSize } = nativeEvent;
+    const paddingToBottom = 20;
+    const isBottom =
+      layoutMeasurement.height + contentOffset.y >= contentSize.height - paddingToBottom;
+    if (isBottom) setTermsAtBottom(true);
+  }}
+  scrollEventThrottle={16}
+>
+  <TermsContent />
+</ScrollView>
 
-          <Text style={[styles.sectionTitle, {color: theme.textPrimary }]}>2. Use of Service</Text>
-          <Text style={[styles.paragraph, {color: theme.textSecondary }]}>
-            The DRIVE app monitors driver drowsiness and provides alerts. It does not replace responsible driving.
-          </Text>
 
-          <Text style={[styles.sectionTitle, {color: theme.textPrimary }]}>3. Data Collection</Text>
-          <Text style={[styles.paragraph, {color: theme.textSecondary }]}>
-            The app collects data including eye-lid monitoring, steering wheel grip, yawning, head tilting, and location during drowsiness events.
-          </Text>
+        <View style={styles.termsFooterRow}>
+          <Pressable
+            style={[styles.secondaryButton, { borderColor: theme.border }]}
+            onPress={() => {
+              if (loading) return;
+              setTermsAtBottom(false);
+              setShowTerms(false);
+            }}
+            disabled={loading}
+          >
+            <Text style={[styles.secondaryText, { color: theme.textPrimary }]}>Cancel</Text>
+          </Pressable>
 
-          <Text style={[styles.sectionTitle, {color: theme.textPrimary }]}>4. Privacy</Text>
-          <Text style={[styles.paragraph, {color: theme.textSecondary }]}>
-            Your data is stored securely and will not be shared without consent, except as required by law.
-          </Text>
-
-          <Text style={[styles.sectionTitle, {color: theme.textPrimary }]}>5. Liability</Text>
-          <Text style={[styles.paragraph, {color: theme.textSecondary }]}>
-            DRIVE is an assistive technology. Users remain responsible for safe driving.
-          </Text>
-
-          <Text style={[styles.sectionTitle, {color: theme.textPrimary }]}>6. Emergency Contacts</Text>
-          <Text style={[styles.paragraph, {color: theme.textSecondary }]}>
-            You authorize the app to contact your emergency contacts in critical events.
-          </Text>
-
-          <Text style={[styles.sectionTitle, {color: theme.textPrimary }]}>7. Updates</Text>
-          <Text style={[styles.paragraph, {color: theme.textSecondary }]}>
-            Terms may be updated at any time. Continued use constitutes acceptance.
-          </Text>
-        </ScrollView>
-
-        <Pressable
-          style={[
-            styles.primaryButton,
-            { backgroundColor: theme.primary }, // use theme.primary
-            loading && styles.disabledButton
-          ]}
-          onPress={() => !loading && setShowTerms(false)}
-          disabled={loading}
-        >
-          <Text style={styles.primaryText}>Close</Text>
-        </Pressable>
+          <Pressable
+            style={[
+              styles.primaryButton,
+              { backgroundColor: theme.primary, flex: 1, marginTop: 0 }, // ✅ stop extra top margin
+              (!termsAtBottom || loading) && styles.disabledButton,
+            ]}
+            onPress={() => {
+              if (loading) return;
+              if (!termsAtBottom) return;
+              setAgreedToTerms(true);
+              setTermsAtBottom(false);
+              setShowTerms(false);
+            }}
+            disabled={!termsAtBottom || loading}
+          >
+            <Text style={styles.primaryText}>I Agree</Text>
+          </Pressable>
+        </View>
 
       </View>
     );
@@ -516,7 +539,8 @@ if (remoteErrors.email || remoteErrors.phone) {
           {renderInput({
             label: 'First Name',
             value: firstName,
-            onChange: (t) => setFirstName(String(t || '')),
+            onChange: (t) => setFirstName(sanitizeNameInput(t)),
+
             keyboardType: 'default',
             disabled: loading,
             onFocus: () => setTouched((s) => ({ ...s, firstName: true })),
@@ -527,7 +551,8 @@ if (remoteErrors.email || remoteErrors.phone) {
           {renderInput({
             label: 'Last Name',
             value: lastName,
-            onChange: (t) => setLastName(String(t || '')),
+            onChange: (t) => setLastName(sanitizeNameInput(t)),
+
             keyboardType: 'default',
             disabled: loading,
             onFocus: () => setTouched((s) => ({ ...s, lastName: true })),
@@ -631,10 +656,20 @@ if (remoteErrors.email || remoteErrors.phone) {
           <Pressable
             style={[styles.termsRow, loading && styles.disabledField]}
             onPress={() => {
-              if (loading) return;
-              setTouched((s) => ({ ...s, terms: true }));
-              setAgreedToTerms((v) => !v);
-            }}
+  if (loading) return;
+  setTouched((s) => ({ ...s, terms: true }));
+
+  // If already agreed, allow uncheck
+  if (agreedToTerms) {
+    setAgreedToTerms(false);
+    return;
+  }
+
+  // Otherwise force modal flow (scroll-to-bottom -> I Agree)
+  setTermsAtBottom(false);
+  setShowTerms(true);
+}}
+
             disabled={loading}
           >
             <Text style={[styles.checkbox, { color: theme.textPrimary }]}>
@@ -644,7 +679,13 @@ if (remoteErrors.email || remoteErrors.phone) {
               I agree to the{' '}
               <Text
                 style={[styles.link, { color: theme.primary }]}
-                onPress={() => !loading && setShowTerms(true)}
+                onPress={() => {
+  if (loading) return;
+  setTouched((s) => ({ ...s, terms: true }));
+  setTermsAtBottom(false);
+  setShowTerms(true);
+}}
+
               >
                 Terms and Conditions
               </Text>
@@ -672,6 +713,20 @@ if (remoteErrors.email || remoteErrors.phone) {
               <Text style={styles.primaryText}>Sign Up</Text>
             )}
           </Pressable>
+                    {/* Already have an account? */}
+          <Pressable
+            onPress={onBackToLogin}
+            disabled={loading}
+            style={styles.haveAccountRow}
+          >
+            <Text style={[styles.haveAccountText, { color: theme.textSecondary }]}>
+              Already have an account?{' '}
+              <Text style={[styles.haveAccountLink, { color: theme.primary }]}>
+                Login
+              </Text>
+            </Text>
+          </Pressable>
+
 
           {/* ✅ Google button REMOVED (as requested) */}
         </ScrollView>
@@ -792,4 +847,35 @@ const styles = StyleSheet.create({
   termsContainer: { flex: 1, marginVertical: 16 },
   sectionTitle: { fontSize: 16, fontWeight: '800', marginTop: 12, color: '#111827' },
   paragraph: { fontSize: 14, color: '#374151', marginTop: 6, lineHeight: 20 },
+
+    haveAccountRow: {
+    marginTop: 12,
+    alignItems: 'center',
+  },
+  haveAccountText: {
+    fontSize: 14,
+    fontWeight: '700',
+  },
+  haveAccountLink: {
+    fontWeight: '900',
+  },
+  termsFooterRow: {
+    flexDirection: 'row',
+    gap: 12,
+    marginTop: 14,
+  },
+  secondaryButton: {
+    height: 54,
+    borderRadius: 12,
+    borderWidth: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingHorizontal: 16,
+    minWidth: 120,
+  },
+  secondaryText: {
+    fontSize: 16,
+    fontWeight: '900',
+  },
+
 });

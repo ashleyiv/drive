@@ -1,5 +1,6 @@
 // driveash/components/Dashboard.js
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState, useCallback } from 'react';
+
 import {
   View,
   Text,
@@ -13,7 +14,9 @@ import {
   Animated,
   Easing,
   ScrollView,
+  DeviceEventEmitter,
 } from 'react-native';
+
 
 
 
@@ -28,66 +31,40 @@ import BottomNav from './BottomNav';
 import { usePendingInviteCount } from '../lib/usePendingInviteCount';
 import useTheme from '../theme/useTheme';
 
-function ModeSwitchOverlay({ visible, title, subtitle, stylesObj }) {
-  const progress = useRef(new Animated.Value(0)).current;
-  const loopRef = useRef(null);
-
-  useEffect(() => {
-    if (!visible) return;
-
-    progress.setValue(0);
-
- loopRef.current = Animated.loop(
-  Animated.timing(progress, {
-    toValue: 1,
-    duration: 1200,
-    easing: Easing.inOut(Easing.ease),
-    useNativeDriver: false,
-  }),
-  { resetBeforeIteration: true }
-);
-
-
-    loopRef.current.start();
-
-    return () => {
-      try {
-        loopRef.current?.stop?.();
-      } catch {}
-    };
-  }, [visible, progress]);
-
-  if (!visible) return null;
-
-  const barWidth = progress.interpolate({
-  inputRange: [0, 1],
-  outputRange: ['0%', '100%'],
-});
-
-  return (
-    <Modal transparent visible={visible} animationType="fade">
-      <View style={stylesObj.modeOverlayBackdrop}>
-        <View style={stylesObj.modeOverlayCard}>
-          <ActivityIndicator />
-          <Text style={stylesObj.modeOverlayTitle}>{title}</Text>
-          <Text style={stylesObj.modeOverlaySubtitle}>{subtitle}</Text>
-
-          <View style={stylesObj.modeBarTrack}>
-            <Animated.View style={[stylesObj.modeBarFill, { width: barWidth }]} />
-          </View>
-        </View>
-      </View>
-    </Modal>
-  );
+// ✅ Removed: duplicate mode-switch overlay.
+// Mode switching is handled by ModeSwitchLoadingScreen (App.js).
+function ModeSwitchOverlay() {
+  return null;
 }
 
 export default function Dashboard({ onNavigate, onSwitchToEmergencyContact }) {
   const { theme, isDark, toggleTheme } = useTheme();
+    // ✅ IMPORTANT: DeviceSession.set may overwrite (not merge).
+  // Merge patches so we never lose connectedDevice/scanState/connectedAt.
+  const safeDeviceSessionSet = (patch) => {
+    try {
+      const prev = DeviceSession.get?.() || {};
+      DeviceSession.set?.({ ...prev, ...patch });
+    } catch {
+      try {
+        DeviceSession.set?.(patch);
+      } catch {}
+    }
+  };
+
   const [showWarningDetails, setShowWarningDetails] = useState(false);
     // ✅ Pending invites badge (for bell)
   const { count: pendingInviteCount } = usePendingInviteCount({ enabled: true, direction: 'outgoing' });
   // ✅ Bell ringing animation (only when badge > 0)
   const bellAnim = useRef(new Animated.Value(0)).current;
+const PROFILE_UPDATED_EVENT = 'profileUpdated';
+const [myAvatarBust, setMyAvatarBust] = useState(Date.now());
+
+const withCacheBust = (url, bust) => {
+  if (!url) return null;
+  const hasQ = String(url).includes('?');
+  return `${url}${hasQ ? '&' : '?'}t=${bust}`;
+};
 
   useEffect(() => {
     let loop;
@@ -120,35 +97,43 @@ export default function Dashboard({ onNavigate, onSwitchToEmergencyContact }) {
 const [loadingOutgoingReqs, setLoadingOutgoingReqs] = useState(false);
 
 
-  // ✅ Mode indicator (shows for ~2.5s on screen entry)
-// ✅ Mode overlay shows ONLY when switching into Driver mode
-const [modeOverlayVisible, setModeOverlayVisible] = useState(false);
-
-useEffect(() => {
-  const pending = DeviceSession.get?.()?.pendingModeSwitchTo;
-
-  // show ONLY if previous screen requested switching to DRIVER
-  if (pending === 'driver') {
-    setModeOverlayVisible(true);
-
-    // clear so it won't show again
-    DeviceSession.set?.({ pendingModeSwitchTo: null });
-
-    const t = setTimeout(() => setModeOverlayVisible(false), 2500);
-    return () => clearTimeout(t);
-  }
-}, []);
-
+  
 
   const [showNotifications, setShowNotifications] = useState(false);
 
-  // Device Status (DEMO)
+   // Device Status (DEMO)
   const [deviceModalVisible, setDeviceModalVisible] = useState(false);
-  const [scanState, setScanState] = useState('idle'); // 'idle' | 'scanning' | 'found' | 'pairing' | 'connected'
+
+  // ✅ IMPORTANT: read DeviceSession ON FIRST RENDER so UI shows "Connected" immediately
+  const initialBtSession = DeviceSession.get?.() || {};
+  const initialConnectedDevice = initialBtSession?.connectedDevice ?? null;
+
+  const parseConnectedAtMs = (v) => {
+    if (typeof v === 'number' && Number.isFinite(v)) return v;
+    if (typeof v === 'string' && v) {
+      const ms = Date.parse(v);
+      return Number.isFinite(ms) ? ms : null;
+    }
+    return null;
+  };
+
+  const initialConnectedAt = parseConnectedAtMs(initialBtSession?.connectedAt);
+
+  const initialScanState =
+    initialBtSession?.scanState ??
+    (initialConnectedDevice ? 'connected' : 'idle');
+
+  const initialBattery =
+    typeof initialBtSession?.batteryPercent === 'number' && Number.isFinite(initialBtSession.batteryPercent)
+      ? initialBtSession.batteryPercent
+      : (initialConnectedDevice ? 95 : null);
+
+  const [scanState, setScanState] = useState(() => initialScanState); // 'idle' | 'scanning' | 'found' | 'pairing' | 'connected'
   const [availableDevices, setAvailableDevices] = useState([]);
   const [selectedDevice, setSelectedDevice] = useState(null);
-  const [connectedDevice, setConnectedDevice] = useState(null); // { id, name, rssi }
-  const [batteryPercent, setBatteryPercent] = useState(null);
+  const [connectedDevice, setConnectedDevice] = useState(() => initialConnectedDevice); // { id, name, rssi }
+  const [batteryPercent, setBatteryPercent] = useState(() => initialBattery);
+
   const batteryTimerRef = useRef(null);
 const locationSubRef = useRef(null);
 // ✅ NEW: stop stream safely (prevents sync-throw crash + double-stop)
@@ -164,7 +149,8 @@ const stopStreamSafely = async (opts = { setMode: false }) => {
 };
 
 // ✅ NEW: track how long we've been connected to IoT (demo bluetooth)
-const [connectedAt, setConnectedAt] = useState(null); // number (ms since epoch)
+const [connectedAt, setConnectedAt] = useState(() => initialConnectedAt); // number (ms since epoch)
+
 
 // ✅ NEW: live "connected duration" label (updates every minute)
 const [connectedDurationLabel, setConnectedDurationLabel] = useState('');
@@ -273,9 +259,11 @@ const currentAlert = useMemo(() => {
   );
 
   // Keep saving bluetoothEnabled in session (flow preserved)
-  useEffect(() => {
-    DeviceSession.set({ bluetoothEnabled });
-  }, [bluetoothEnabled]);
+// Keep saving bluetoothEnabled in session (flow preserved) — ✅ but do NOT overwrite connection state
+useEffect(() => {
+  safeDeviceSessionSet({ bluetoothEnabled });
+}, [bluetoothEnabled]);
+
 
   const openDeviceModal = () => setDeviceModalVisible(true);
   const closeDeviceModal = () => setDeviceModalVisible(false);
@@ -498,81 +486,88 @@ const currentAlert = useMemo(() => {
     };
   }, []);
 
+  const refreshMyAvatar = useCallback(async () => {
+  try {
+    const { data: userRes, error } = await supabase.auth.getUser();
+    if (error) throw error;
+
+    const me = userRes?.user;
+    if (!me?.id) {
+      setMyAvatar(null);
+      return;
+    }
+
+    clearAvatarCache(me.id);
+    const url = await getUserAvatarUrl(me.id);
+    setMyAvatar(url || null);
+
+    // force <Image> to reload even if URL is same
+    setMyAvatarBust(Date.now());
+  } catch (e) {
+    console.log('[Dashboard] refreshMyAvatar error:', e);
+    setMyAvatar(null);
+  }
+}, []);
+
+const refreshMyProfileName = useCallback(async () => {
+  try {
+    const { data: userRes, error: userErr } = await supabase.auth.getUser();
+    if (userErr) throw userErr;
+
+    const me = userRes?.user;
+    const authEmail = String(me?.email || '').trim().toLowerCase();
+    setMyEmail(authEmail);
+
+    if (!me?.id) return;
+
+    const { data: prof, error: profErr } = await supabase
+      .from('user_profiles')
+      .select('first_name,last_name,email')
+      .eq('id', me.id)
+      .maybeSingle();
+
+    if (profErr) throw profErr;
+
+    const first = String(prof?.first_name || '').trim();
+    const last = String(prof?.last_name || '').trim();
+    const dbEmail = String(prof?.email || '').trim().toLowerCase();
+
+    setMyFirstName(first);
+    setMyLastName(last);
+    if (dbEmail) setMyEmail(dbEmail);
+  } catch (e) {
+    console.log('[Dashboard] refreshMyProfileName error:', e);
+  }
+}, []);
+useEffect(() => {
+  refreshMyAvatar();
+}, [refreshMyAvatar]);
+
+useEffect(() => {
+  const sub = DeviceEventEmitter.addListener(PROFILE_UPDATED_EVENT, async (payload) => {
+    // If you only want to refresh for current user, keep it cheap:
+    const { data: userRes } = await supabase.auth.getUser();
+    const me = userRes?.user;
+    if (!me?.id) return;
+
+    if (payload?.userId && String(payload.userId) !== String(me.id)) return;
+
+    refreshMyAvatar();
+    refreshMyProfileName();
+  });
+
+  return () => sub.remove();
+}, [refreshMyAvatar, refreshMyProfileName]);
+
   // ✅ Load my avatar (from DB user_profiles.avatar_url)
-  useEffect(() => {
-    let mounted = true;
-
-    const loadMyAvatar = async () => {
-      try {
-        const { data: userRes, error } = await supabase.auth.getUser();
-        if (error) throw error;
-
-        const me = userRes?.user;
-        if (!me?.id) {
-          if (mounted) setMyAvatar(null);
-          return;
-        }
-
-        // refresh cache on screen mount so it reflects latest avatar changes
-        clearAvatarCache(me.id);
-
-        const url = await getUserAvatarUrl(me.id);
-        if (mounted) setMyAvatar(url);
-      } catch (e) {
-        console.log('[Dashboard] loadMyAvatar error:', e);
-        if (mounted) setMyAvatar(null);
-      }
-    };
-
-    loadMyAvatar();
-    return () => {
-      mounted = false;
-    };
-  }, []);
+ 
 
   // ✅ Load my profile name from user_profiles
-  useEffect(() => {
-    let mounted = true;
+useEffect(() => {
+  refreshMyProfileName();
+}, [refreshMyProfileName]);
 
-    const loadMyProfileName = async () => {
-      try {
-        const { data: userRes, error: userErr } = await supabase.auth.getUser();
-        if (userErr) throw userErr;
-
-        const me = userRes?.user;
-        const authEmail = String(me?.email || '').trim().toLowerCase();
-        if (mounted) setMyEmail(authEmail);
-
-        if (!me?.id) return;
-
-        const { data: prof, error: profErr } = await supabase
-          .from('user_profiles')
-          .select('first_name,last_name,email')
-          .eq('id', me.id)
-          .maybeSingle();
-
-        if (profErr) throw profErr;
-
-        const first = String(prof?.first_name || '').trim();
-        const last = String(prof?.last_name || '').trim();
-        const dbEmail = String(prof?.email || '').trim().toLowerCase();
-
-        if (!mounted) return;
-
-        setMyFirstName(first);
-        setMyLastName(last);
-        if (dbEmail) setMyEmail(dbEmail);
-      } catch (e) {
-        console.log('[Dashboard] loadMyProfileName error:', e);
-      }
-    };
-
-    loadMyProfileName();
-
-    return () => {
-      mounted = false;
-    };
-  }, []);
+    
 // ✅ NEW: update connected duration label every minute while connected
 useEffect(() => {
   if (!(scanState === 'connected' && connectedDevice && connectedAt)) {
@@ -688,7 +683,7 @@ setBatteryPercent(95);
 const nowMs = Date.now();
 setConnectedAt(nowMs);
 
-DeviceSession.set({
+safeDeviceSessionSet({
   scanState: 'connected',
   connectedDevice: selectedDevice,
   batteryPercent: 95,
@@ -720,7 +715,7 @@ const performDisconnectAndCleanup = () => {
   setAvailableDevices([]);
 setConnectedAt(null);
 setConnectedDurationLabel('');
-DeviceSession.set?.({ connectedAt: null });
+safeDeviceSessionSet({ connectedAt: null });
 
   // ✅ stop safely (prevents sync-throw crash)
 stopStreamSafely({ setMode: true });
@@ -986,12 +981,7 @@ async function stopLocationStreaming(subscription) {
 }
   return (
     <View style={[s.screen, { backgroundColor: theme.background }]}>
-          <ModeSwitchOverlay
-      visible={modeOverlayVisible}
-      title="DRIVER MODE"
-      subtitle="Switching to Driver dashboard…"
-      stylesObj={s}
-    />
+    
 
       {/* ✅ Header (match screenshot) */}
       <View style={[s.header, { backgroundColor: theme.primary }]}>
@@ -1025,9 +1015,10 @@ async function stopLocationStreaming(subscription) {
         <View style={s.helloRow}>
           <View style={s.helloAvatarWrap}>
             <Image
-              source={myAvatar ? { uri: myAvatar } : driverImage}
-              style={s.helloAvatar}
-            />
+  source={myAvatar ? { uri: withCacheBust(myAvatar, myAvatarBust) } : driverImage}
+  style={s.helloAvatar}
+/>
+
           </View>
 
           <View style={{ marginLeft: 12 }}>

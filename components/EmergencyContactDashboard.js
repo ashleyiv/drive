@@ -75,55 +75,10 @@ const mockDrivers = [
   },
 ];
 
-function ModeSwitchOverlay({ visible, title, subtitle }) {
-  const progress = useRef(new Animated.Value(0)).current;
-  const loopRef = useRef(null);
-
-  useEffect(() => {
-    if (!visible) return;
-
-    progress.setValue(0);
-    loopRef.current = Animated.loop(
-      Animated.timing(progress, {
-        toValue: 1,
-        duration: 1200,
-        easing: Easing.inOut(Easing.ease),
-        useNativeDriver: false,
-      }),
-      { resetBeforeIteration: true }
-    );
-
-    loopRef.current.start();
-
-    return () => {
-      try {
-        loopRef.current?.stop?.();
-      } catch {}
-    };
-  }, [visible, progress]);
-
-  if (!visible) return null;
-
-  const barWidth = progress.interpolate({
-    inputRange: [0, 1],
-    outputRange: ['0%', '100%'],
-  });
-
-  return (
-    <Modal transparent visible={visible} animationType="fade">
-      <View style={styles.modeOverlayBackdrop}>
-        <View style={styles.modeOverlayCard}>
-          <ActivityIndicator />
-          <Text style={styles.modeOverlayTitle}>{title}</Text>
-          <Text style={styles.modeOverlaySubtitle}>{subtitle}</Text>
-
-          <View style={styles.modeBarTrack}>
-            <Animated.View style={[styles.modeBarFill, { width: barWidth }]} />
-          </View>
-        </View>
-      </View>
-    </Modal>
-  );
+// ✅ Removed: duplicate mode-switch overlay.
+// Mode switching is handled by ModeSwitchLoadingScreen (App.js).
+function ModeSwitchOverlay() {
+  return null;
 }
 
 function displayNameFromProfile(p) {
@@ -386,21 +341,7 @@ const bigMapRef = useRef(null);
     return () => clearInterval(t);
   }, []);
 
-  // ✅ Mode overlay shows ONLY when switching into Emergency Contact mode
-  const [modeOverlayVisible, setModeOverlayVisible] = useState(false);
 
-  useEffect(() => {
-    const pending = DeviceSession.get?.()?.pendingModeSwitchTo;
-
-    if (pending === 'contact') {
-      setModeOverlayVisible(true);
-
-      DeviceSession.set?.({ pendingModeSwitchTo: null });
-
-      const t = setTimeout(() => setModeOverlayVisible(false), 2500);
-      return () => clearTimeout(t);
-    }
-  }, []);
 
   const [loadingDrivers, setLoadingDrivers] = useState(true);
 
@@ -709,11 +650,22 @@ if (s?.connectedDevice?.id === lastId && s?.scanState === 'connected') {
         setAutoConnectLoading(true);
 
         setTimeout(() => {
+          const prev = DeviceSession.get?.() || {};
+          const prevMs =
+            typeof prev.connectedAt === 'number'
+              ? prev.connectedAt
+              : prev.connectedAt
+              ? Date.parse(prev.connectedAt)
+              : null;
+
+          const connectedAtMs = Number.isFinite(prevMs) ? prevMs : Date.now();
+
           DeviceSession.set({
             scanState: 'connected',
             connectedDevice: found,
             batteryPercent: 95,
             lastPairedDevice: found,
+            connectedAt: connectedAtMs, // ✅ ensure Driver UI can show "Connected" immediately
           });
 
           setConnectedDevice(found);
@@ -1044,11 +996,7 @@ useEffect(() => {
 
   return (
     <View style={[styles.container, { backgroundColor: theme.background }]}>
-      <ModeSwitchOverlay
-        visible={modeOverlayVisible}
-        title="EMERGENCY CONTACT MODE"
-        subtitle="Switching to Emergency Contact dashboard…"
-      />
+   
 
       {/* Header with Bluetooth button */}
       <View style={[styles.header, { backgroundColor: theme.primary }]}>
@@ -1271,7 +1219,7 @@ useEffect(() => {
   variant="emergency"
   activeKey="drivers"
   onNavigate={onNavigate}
-  notificationCount={pendingInviteCount}
+ 
   theme={theme}
 />
 
@@ -1312,7 +1260,7 @@ useEffect(() => {
                   </Pressable>
 
                   <Text style={{ fontSize: 16, fontWeight: '900', color: theme.textPrimary }}>
-                    History Details
+                    Real Time Monitoring
                   </Text>
                 </View>
 

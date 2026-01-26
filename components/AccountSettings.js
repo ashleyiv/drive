@@ -11,7 +11,9 @@ import {
   Image,
   ActivityIndicator,
   Modal,
+  DeviceEventEmitter,
 } from 'react-native';
+
 import { Ionicons } from '@expo/vector-icons';
 import * as ImagePicker from 'expo-image-picker';
 import * as FileSystem from 'expo-file-system/legacy';
@@ -32,6 +34,7 @@ export default function AccountSettings({
 
   const initialFirst = useMemo(() => (String(userName).split(' ')[0] || '').trim(), [userName]);
   const initialLast = useMemo(() => (String(userName).split(' ').slice(1).join(' ') || '').trim(), [userName]);
+const PROFILE_UPDATED_EVENT = 'profileUpdated';
 
   const [email, setEmail] = useState(String(userEmail || '—'));
   const [phone, setPhone] = useState(formatPHPretty(userPhone) || '—');
@@ -164,8 +167,11 @@ const handleSave = async () => {
       setLastName(updated.last_name ?? '');
     }
 
-    Alert.alert('Saved', 'Profile updated.');
-    setEditing(false);
+  DeviceEventEmitter.emit(PROFILE_UPDATED_EVENT, { userId: user.id, ts: Date.now() });
+
+Alert.alert('Saved', 'Profile updated.');
+setEditing(false);
+
   } catch (e) {
     Alert.alert('Save failed', e?.message || 'Could not update profile.');
   } finally {
@@ -321,19 +327,35 @@ const handleSave = async () => {
       const publicUrl = pub?.publicUrl;
       if (!publicUrl) throw new Error('Failed to get public URL');
 
-      const { error: dbErr } = await supabase
-        .from('user_profiles')
-        .update({ avatar_url: publicUrl })
-        .eq('id', user.id);
+ const { error: dbErr } = await supabase
+  .from('user_profiles')
+  .update({ avatar_url: publicUrl })
+  .eq('id', user.id);
 
-      if (dbErr) throw dbErr;
+if (dbErr) throw dbErr;
 
-      // ✅ CRITICAL: clear cache so Menu/Dashboard/Contacts fetch the new photo
-      clearAvatarCache(user.id);
+// ✅ OPTIONAL (safe): try to keep public table in sync too (won't break if blocked by RLS)
+try {
+  await supabase
+    .from('user_profiles_public')
+    .upsert(
+      { id: user.id, avatar_url: publicUrl, updated_at: new Date().toISOString() },
+      { onConflict: 'id' }
+    );
+} catch (e) {
+  console.log('[AccountSettings] user_profiles_public upsert skipped:', e?.message || e);
+}
 
-      setAvatarUrl(publicUrl);
-      setAvatarCacheBust(Date.now());
-      Alert.alert('Saved', 'Profile photo updated.');
+// ✅ CRITICAL: clear cache so Menu/Dashboard fetch the new photo
+clearAvatarCache(user.id);
+
+// ✅ broadcast change so already-mounted screens refresh immediately
+DeviceEventEmitter.emit(PROFILE_UPDATED_EVENT, { userId: user.id, ts: Date.now() });
+
+setAvatarUrl(publicUrl);
+setAvatarCacheBust(Date.now());
+Alert.alert('Saved', 'Profile photo updated.');
+
     } catch (e) {
       console.log('[AccountSettings] avatar upload error:', e);
       Alert.alert('Upload failed', e?.message || 'Could not upload photo.');
